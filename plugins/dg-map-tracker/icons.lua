@@ -44,7 +44,16 @@ local icons_data = {}   -- key -> { sw, sh, mvp, pts }
 local icons_catalog = {}    -- key -> { name, kind }
 local icons_ignored = {}    -- key -> true
 local icons_by_n    = {}    -- n -> list of parsed catalog entries (for scorer)
-local last_icons_data_raw = nil
+-- icons_data.txt is written ONLY by this plugin (panels read it via Lua
+-- messages), so after the one load at plugin start the in-memory copy is
+-- authoritative: appends accumulate in icons_data_pending and flush behind a
+-- short timer. The old path paid a full disk read + rebuild + write + reparse
+-- of the whole (10+ MB) file per NEW icon key, which landed as a visible
+-- stall on door open -- a new room is exactly when new icons appear.
+local icons_data_raw = nil       -- file contents as loaded / last flushed
+local icons_data_pending = {}    -- lines appended since the last flush
+local icons_data_flush_due = nil -- bolt.time() deadline for the next flush
+local ICONS_DATA_FLUSH_US = 2 * 1000 * 1000
 -- Snapshot of the most recently sent icon queue, so the Ignore-all handler
 -- knows what to append to icon_ignored.txt.
 local last_dumped_icons_list = {}
@@ -185,9 +194,9 @@ end
 -- icons_data.txt format: <key>|SW=<n>|SH=<n>|MVP=<16 floats>|PTS=<catalog>\n
 -- The KEY may contain '|' characters, so we anchor on the SW= sentinel.
 local function reload_icons_data()
+  if icons_data_raw ~= nil then return end  -- loaded once; memory is authority
   local raw = SET.load_or_seed("icons_data.txt")
-  if raw == last_icons_data_raw then return end
-  last_icons_data_raw = raw
+  icons_data_raw = raw or ""
   icons_data = {}
   if not raw then return end
   for line in raw:gmatch("[^\r\n]+") do
@@ -225,12 +234,11 @@ function persist_icon_data(key, sw, sh, mvp, pts)
   if icons_data[key] then return end
   if not pts or pts == "" or not mvp or mvp == "" then return end
   icons_data[key] = { sw = sw or 0, sh = sh or 0, mvp = mvp, pts = pts }
-  local prior = SET.load_or_seed("icons_data.txt") or ""
-  if #prior > 0 and not prior:match("\n$") then prior = prior .. "\n" end
-  bolt.saveconfig("icons_data.txt", string.format(
-    "%s%s|SW=%d|SH=%d|MVP=%s|PTS=%s\n",
-    prior, key, sw or 0, sh or 0, mvp, pts))
-  last_icons_data_raw = nil   -- force reload next tick
+  icons_data_pending[#icons_data_pending + 1] = string.format(
+    "%s|SW=%d|SH=%d|MVP=%s|PTS=%s\n", key, sw or 0, sh or 0, mvp, pts)
+  if not icons_data_flush_due then
+    icons_data_flush_due = (bolt.time() or 0) + ICONS_DATA_FLUSH_US
+  end
 end
 
 local function reload_ignored_icons()
@@ -486,9 +494,9 @@ local function on_icon_event(event, kind)
         pts = pts_str,
         mvp = mvp_str,
       }
-      -- First sighting of a classified entry (e.g. after a manual
-      -- tracker.py catalog): persist the mesh data so previews survive reloads.
-      persist_icon_data(key, sw, sh, mvp_str, pts_str)
+      -- No persist here: a recognized icon's mesh is already in icons_data
+      -- under the catalog's canonical fingerprint (the only key the atlas
+      -- reads). Jittered re-sightings of known icons must never re-save.
     else
       ce.sx = sx; ce.sy = sy; ce.sw = sw; ce.sh = sh
     end
@@ -537,10 +545,10 @@ local function on_icon_event(event, kind)
       pts = pts_str,
       mvp = mvp_str,
     }
-    -- Persist mesh data for THIS queue entry too — so if the user names it
-    -- later (via tracker.py or the panel), the preview still works, AND so a
-    -- plugin reload can restore the queue with previews intact.
-    persist_icon_data(key, sw, sh, mvp_str, pts_str)
+    -- No persist for queue entries: icons_data.txt holds exactly one mesh
+    -- per CATALOGED icon and is written only when an icon is named (the
+    -- classify handler). Queue previews live in memory; a reload before
+    -- naming just means re-sighting the icon once.
   else
     entry.sx = sx; entry.sy = sy; entry.sw = sw; entry.sh = sh
     entry.seen = entry.seen + 1
@@ -585,10 +593,26 @@ end
 bolt.onrendericon(function (event)    on_icon_event(event, "icon")    end)
 bolt.onrenderbigicon(function (event) on_icon_event(event, "bigicon") end)
 
+-- Batched flush of new icons_data lines: one concat + one write per burst of
+-- new icons, at most every ICONS_DATA_FLUSH_US, instead of a full file round
+-- trip per icon on the frame it first renders.
+local function flush_icons_data()
+  if #icons_data_pending == 0 then return end
+  local raw = icons_data_raw or ""
+  if #raw > 0 and not raw:match("\n$") then raw = raw .. "\n" end
+  icons_data_raw = raw .. table.concat(icons_data_pending)
+  icons_data_pending = {}
+  icons_data_flush_due = nil
+  bolt.saveconfig("icons_data.txt", icons_data_raw)
+end
+
 local function tick_icons()
   -- Queue entries are sticky: once an icon has been sighted, it stays in the
   -- queue until it's explicitly named or ignored. No TTL aging — the user
   -- may need to re-enter a scene to remember what a candidate looked like.
+  if icons_data_flush_due and (bolt.time() or 0) >= icons_data_flush_due then
+    flush_icons_data()
+  end
 end
 
 local _icons_msg_last, _iignored_msg_last, _iclassified_msg_last, _names_msg_last = "", "", "", ""
