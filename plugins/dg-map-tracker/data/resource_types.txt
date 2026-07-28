@@ -1,0 +1,4 @@
+ore|10
+tree|10
+herb|10
+dino|10

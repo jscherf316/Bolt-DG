@@ -1,0 +1,280 @@
+<!doctype html>
+<html><head><style>
+  :root {
+    --bg: #3e352a;
+    --bg-cell: #4b402f;
+    --bg-input: #2f281f;
+    --border: #6b5b3f;
+    --border-strong: #967a4a;
+    --text: #f0d493;
+    --text-dim: #b8a17a;
+    --text-faint: #8a7454;
+    --accent: #ffcf6b;
+  }
+  html, body { margin: 0; padding: 0; background: transparent; color: var(--text);
+    font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; height: 100%; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+
+  .card {
+    width: 100%; height: 100%; box-sizing: border-box;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    display: flex; flex-direction: column;
+    user-select: none;
+  }
+
+  .header {
+    padding: 7px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: move;
+    border-bottom: 1px solid var(--border);
+    flex: none;
+  }
+  .title {
+    flex: 1;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  /* Drawn X (two rotated bars), not a text glyph -- matches the panel's
+     inset-border button language instead of looking like a stray letter. */
+  .close {
+    cursor: pointer;
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    position: relative;
+    flex: none;
+  }
+  .close::before, .close::after {
+    content: "";
+    position: absolute;
+    left: 4px; right: 4px; top: 50%; height: 2px;
+    background: var(--text-dim);
+    border-radius: 1px;
+  }
+  .close::before { transform: translateY(-50%) rotate(45deg); }
+  .close::after  { transform: translateY(-50%) rotate(-45deg); }
+  .close:hover { background: var(--bg-cell); }
+  .close:hover::before, .close:hover::after { background: var(--accent); }
+
+  .body { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 7px; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .row .label { font-size: 13px; color: var(--text-dim); }
+
+  .switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: var(--bg-input); border: 1px solid var(--border-strong);
+    border-radius: 20px; cursor: pointer; transition: background 0.12s ease; }
+  .slider::before { content: ""; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px;
+    background: var(--text-dim); border-radius: 50%; transition: transform 0.12s ease, background 0.12s ease; }
+  .switch input:checked + .slider { background: rgba(255, 207, 107, 0.25); }
+  .switch input:checked + .slider::before { transform: translateX(16px); background: var(--accent); }
+
+  /* Number steppers: value with -/+ either side. No editable inputs, so state
+     re-pushes can never clobber anything mid-edit. */
+  .step { display: flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
+  .sbtn {
+    width: 18px; height: 18px; border-radius: 4px; cursor: pointer;
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    color: var(--text-dim); font-weight: 700; font-size: 13px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .sbtn:hover { background: var(--bg-input); color: var(--accent); }
+  .sval {
+    min-width: 30px; text-align: center; font-size: 13px; color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Colour swatches instead of the native picker: an <input type=color> pops
+     its picker INSIDE the OSR browser, which clips at the panel edge and made
+     everything past it untouchable (bug list 2026-07-27). Swatches cannot
+     overflow anything. */
+  .swatches { display: grid; grid-template-columns: repeat(4, 24px); row-gap: 6px; justify-content: space-between; }
+  .swatch {
+    width: 24px; height: 24px; border-radius: 4px; cursor: pointer;
+    border: 2px solid rgba(0, 0, 0, 0.45);
+    box-sizing: border-box;
+  }
+  /* Selected: hard white ring + the colour insets away from it (padding with
+     background-clip), so there is a visible dark gap between ring and fill --
+     unmistakable even when the fill is itself bright or white. */
+  .swatch.selected {
+    border-color: #fff;
+    padding: 3px;
+    background-clip: content-box;
+  }
+
+  .status {
+    font-size: 12px;
+    color: var(--text-faint);
+    text-align: right;
+  }
+</style></head><body>
+  <div class="card">
+    <div class="header" id="header">
+      <span class="title">Line Draw</span>
+      <span class="close" id="close" title="Close"></span>
+    </div>
+    <div class="body">
+      <div class="row">
+        <span class="label">Enabled</span>
+        <label class="switch"><input type="checkbox" id="enabled"><span class="slider"></span></label>
+      </div>
+      <div class="row">
+        <span class="label">Grid Aligned</span>
+        <label class="switch"><input type="checkbox" id="pathMode"><span class="slider"></span></label>
+      </div>
+      <div class="status" id="pathStatus" style="display:none;"></div>
+
+      <div class="swatches" id="swatches"></div>
+      <div class="row">
+        <span class="label">Opacity</span>
+        <div class="step">
+          <span class="sbtn" id="alphaMinus">-</span>
+          <span class="sval" id="alphaVal">100</span>
+          <span class="sbtn" id="alphaPlus">+</span>
+        </div>
+      </div>
+      <div class="row">
+        <span class="label">Thickness</span>
+        <div class="step">
+          <span class="sbtn" id="thickMinus">-</span>
+          <span class="sval" id="thickVal">32</span>
+          <span class="sbtn" id="thickPlus">+</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const header = document.getElementById("header");
+
+    const send = (body) => {
+      fetch("https://bolt-api/send-message", { method: "POST", body }).catch(() => {});
+    };
+
+    header.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest(".close")) return;
+      fetch("https://bolt-api/start-reposition?h=0&v=0").catch(() => {});
+    });
+    document.getElementById("close").addEventListener("click", () => send("close_panel"));
+
+    const enabledEl = document.getElementById("enabled");
+    const pathModeEl = document.getElementById("pathMode");
+    const pathStatusEl = document.getElementById("pathStatus");
+    const alphaValEl = document.getElementById("alphaVal");
+    const thickValEl = document.getElementById("thickVal");
+    const swatchesEl = document.getElementById("swatches");
+
+    let suppressEvents = false;
+    let currentColor = [255, 70, 70];
+    let alphaPct = 100;      // shown 0..100, stored 0..255
+    let thickness = 32;      // whole numbers only
+
+    // Full-saturation neons: these draw over dungeon browns and greys, so
+    // muted swatches vanish in-world.
+    const PALETTE = [
+      [255, 0, 0], [255, 128, 0], [255, 255, 0], [0, 255, 0],
+      [0, 255, 255], [0, 96, 255], [255, 0, 255], [255, 255, 255],
+    ];
+    const swatchEls = PALETTE.map((rgb) => {
+      const el = document.createElement("div");
+      el.className = "swatch";
+      el.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+      el.addEventListener("click", () => {
+        currentColor = rgb;
+        markSelected();
+        sendColor();
+      });
+      swatchesEl.appendChild(el);
+      return el;
+    });
+    const markSelected = () => {
+      swatchEls.forEach((el, i) => {
+        const rgb = PALETTE[i];
+        el.classList.toggle("selected",
+          rgb[0] === currentColor[0] && rgb[1] === currentColor[1] && rgb[2] === currentColor[2]);
+      });
+    };
+
+    const sendColor = () => {
+      if (suppressEvents) return;
+      const a = Math.round(alphaPct * 255 / 100);
+      send(`set_color:${currentColor[0]},${currentColor[1]},${currentColor[2]},${a}`);
+    };
+
+    enabledEl.addEventListener("change", () => { if (!suppressEvents) send("set_enabled:" + enabledEl.checked); });
+    pathModeEl.addEventListener("change", () => { if (!suppressEvents) send("set_path_mode:" + pathModeEl.checked); });
+
+    const stepAlpha = (d) => {
+      alphaPct = Math.max(0, Math.min(100, alphaPct + d * 10));
+      alphaValEl.textContent = alphaPct;
+      sendColor();
+    };
+    const stepThickness = (d) => {
+      thickness = Math.max(1, Math.min(99, thickness + d));
+      thickValEl.textContent = thickness;
+      send("set_thickness:" + thickness);
+    };
+    document.getElementById("alphaMinus").addEventListener("click", () => stepAlpha(-1));
+    document.getElementById("alphaPlus").addEventListener("click", () => stepAlpha(1));
+    document.getElementById("thickMinus").addEventListener("click", () => stepThickness(-1));
+    document.getElementById("thickPlus").addEventListener("click", () => stepThickness(1));
+
+    const applyState = (state) => {
+      suppressEvents = true;
+      enabledEl.checked = !!state.enabled;
+      pathModeEl.checked = !!state.pathMode;
+      currentColor = [state.color.r, state.color.g, state.color.b];
+      markSelected();
+      alphaPct = Math.round((state.color.a / 255) * 100);
+      alphaValEl.textContent = alphaPct;
+      thickness = Math.round(state.thickness) || 1;
+      thickValEl.textContent = thickness;
+      suppressEvents = false;
+
+      // Only the positive signal; the "calibrating..." nag was removed 2026-07-27.
+      if (state.pathMode && state.pathAvailable) {
+        pathStatusEl.style.display = "block";
+        pathStatusEl.textContent = "routing via room graph";
+      } else {
+        pathStatusEl.style.display = "none";
+      }
+    };
+
+    let gotState = false;
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      // DECODE BINARY. Plugin messages arrive as Uint8Array/ArrayBuffer; every
+      // other panel decodes them and this one never did -- `typeof content !==
+      // "string"` silently discarded EVERY state push, which is the actual
+      // root cause of "settings never load into the panel" (all three reports).
+      let content = e.data.content;
+      if (content instanceof Uint8Array) content = new TextDecoder().decode(content);
+      else if (content instanceof ArrayBuffer) content = new TextDecoder().decode(new Uint8Array(content));
+      if (typeof content !== "string") return;
+      if (content.startsWith("state:")) {
+        gotState = true;
+        try { applyState(JSON.parse(content.slice(6))); } catch (err) {}
+      }
+    });
+
+    // PULL until the first state arrives. A single fire-and-forget refresh
+    // raced the plugin often enough that the panel opened showing defaults
+    // (bug list 2026-07-27, twice). Retrying from this side converges no
+    // matter which side was slower.
+    send("refresh");
+    const refreshTimer = setInterval(() => {
+      if (gotState) { clearInterval(refreshTimer); return; }
+      send("refresh");
+    }, 400);
+  </script>
+</body></html>

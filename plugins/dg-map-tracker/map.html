@@ -1,0 +1,458 @@
+<!doctype html>
+<!-- Click-through DG map. ONE embedded browser: a 60px header bar (visible,
+     draggable) plus an off-DOM renderer. The map grid CHROME (cells, borders,
+     shadows, corridors, ? glyphs) is rendered by the REAL Blink engine via a
+     data:-URI SVG foreignObject (proven pixel-identical to the CSS panel),
+     then the key/player/gatestone/base-boss ICONS are composited on top from
+     ImageData we already generate. getImageData -> "px:" frame -> Lua surface
+     -> drawn on the game below the bar. Pixels on screen intercept no input.
+
+     Rendered 1:1 at the on-screen edge size E (sent by Lua as "size:E"), so it
+     matches the panel exactly at any map-size. CSS gap/padding are 1.3% like
+     rooms.html; borders/shadows are authored px; the ? font is computed from
+     the cell size (container queries aren't reliable inside foreignObject). -->
+<html><head><style>
+  :root {
+    --bg: #3e352a; --bg-alt: #4b402f; --border: #6b5b3f;
+    --border-strong: #967a4a; --text: #f0d493; --text-dim: #b8a17a; --accent: #ffcf6b;
+  }
+  /* The browser rect is 60px (client minimum) but only this thin 20px bar is
+     visible; the rest is transparent and the map surface is drawn on top of
+     it. So the header looks slim like the old panel. */
+  html, body { margin: 0; padding: 0; background: transparent; color: var(--text);
+    font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; height: 100%; user-select: none; }
+  .title-bar {
+    height: 20px; box-sizing: border-box; padding: 3px 6px;
+    background: var(--bg-alt); color: var(--text);
+    font-size: 11px; font-weight: bold; line-height: 13px;
+    border: 1px solid var(--border-strong); border-bottom: 1px solid var(--border);
+    border-radius: 4px 4px 0 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    cursor: move; user-select: none;
+    white-space: nowrap; overflow: hidden;   /* never wrap to a 2nd line */
+  }
+  .title-bar.dead { background: #8b1a1a; color: #ffe0e0; }
+  #title { flex: 0 1 auto; text-align: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .hdr-side { flex: 1 1 0; min-width: 0; overflow: hidden; font-weight: normal; opacity: 0.85; font-variant-numeric: tabular-nums; }
+  .hdr-side.left  { display: flex; align-items: center; justify-content: flex-start; gap: 10px; }
+  .hdr-side.right { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+  #rpm { text-align: left; }
+  #sync { flex: 0 0 auto; display: none; align-items: center; gap: 4px; font-weight: normal; font-size: 11px; opacity: 0.9; font-variant-numeric: tabular-nums; }
+  #sync .dot { width: 7px; height: 7px; border-radius: 50%; background: #888; display: inline-block; }
+  #sync.connected .dot { background: #7abd50; }
+  #sync.pending .dot   { background: #ffcf6b; }
+  #sync.down .dot      { background: #d67c4c; }
+</style></head><body>
+  <div class="title-bar" id="bar">
+    <span class="hdr-side left"><span id="rpm"></span><span id="crit"></span></span>
+    <span id="title">DG Map</span>
+    <span class="hdr-side right"><span id="sync"><span class="dot"></span><span class="count"></span></span></span>
+  </div>
+  <script>
+    "use strict";
+    let EDGE = 382;                       // on-screen map edge (logical), from Lua
+    const SURF = 1024;                    // surface / canvas size (power of 2)
+    // Render at the display's device-pixel-ratio so the map is as crisp as the
+    // old embedded-browser panel (CEF renders those at DPR; a 1x raster looks
+    // pixellated on a HiDPI screen). Capped to the surface size.
+    const renderEdge = () => Math.min(Math.round(EDGE * (window.devicePixelRatio || 1)), SURF);
+    const cv = document.createElement("canvas");   // detached: invisible, readable
+    cv.width = SURF; cv.height = SURF;
+    const ctx = cv.getContext("2d", { willReadFrequently: true });
+    const post = (b) => fetch("https://bolt-api/send-message", { method: "POST", body: b }).catch(() => {});
+
+    // ---- header UI ----------------------------------------------------------
+    document.getElementById("bar").addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      fetch("https://bolt-api/start-reposition?h=0&v=0").catch(() => {});
+    });
+    const setHeader = (parts) => {
+      document.getElementById("rpm").textContent = (parts[0] && parts[0] !== "-") ? parts[0] + " rpm" : "";
+      document.getElementById("crit").textContent = parts[1] ? parts[1] + " crit" : "";
+      const sy = document.getElementById("sync"), st = parts[2] || "";
+      if (!st) { sy.style.display = "none"; return; }
+      sy.className = (st === "connected") ? "connected"
+                   : (st === "connecting" || st === "boot" || st === "retrying") ? "pending" : "down";
+      sy.style.display = "flex"; sy.title = "party sync: " + st;
+      sy.querySelector(".count").textContent = (st === "connected") ? (parts[3] || "0") : "";
+    };
+
+    // ---- state --------------------------------------------------------------
+    const keyMeshRaw = {}, keyAtlasImageData = {}, imgAtlasImageData = {}, iconCanvasCache = {};
+    let heldKeys = new Set(), lastRooms = null, deadReason = "";
+    const COLORS = { gold:"#d4a03e", silver:"#c8c8c8", blue:"#4b7dc4", green:"#4b9c58",
+      purple:"#8654a9", crimson:"#b04a4a", orange:"#d67c3c", yellow:"#e0c73e" };
+    const SHAPE_NAMES = new Set(["triangle","rectangle","wedge","corner","pentagon","diamond","shield","crescent"]);
+    const PLAYER_SLOTS = { PLAYER_RED:1, PLAYER_TWO:2, PLAYER_THREE:3, PLAYER_FOUR:4, PLAYER_FIVE:5 };
+
+    // ---- chrome CSS (embedded in the foreignObject; real rooms.html styling,
+    //      fixed-px borders/shadows, %-based grid). {FONT} is substituted with
+    //      the computed ? font size for the current edge. --------------------
+    const CHROME_CSS = `
+      :root{--cell-empty:#000;--cell-body:#7a5a2a;--cell-base:#7a5a2a;--cell-boss:#8a2a2a;
+        --cell-unopened:#7a5a2a;--par-unknown:#2e230d;--par-bonus:#24190d;--par-crit:#dab260;--accent:#ffcf6b;}
+      *{box-sizing:border-box;}
+      .grid{position:relative;background:#000;display:grid;
+        grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);gap:1.3%;padding:1.3%;}
+      .cell{background:var(--cell-empty);border:3px solid transparent;border-radius:3px;
+        position:relative;overflow:visible;}
+      .corridor{position:absolute;background:inherit;z-index:0;border-radius:1px;}
+      .corridor.n{top:-17%;left:32%;width:36%;height:22%;}
+      .corridor.s{bottom:-17%;left:32%;width:36%;height:22%;}
+      .corridor.e{right:-17%;top:32%;height:36%;width:22%;}
+      .corridor.w{left:-17%;top:32%;height:36%;width:22%;}
+      .cell.body{background:var(--cell-body);border-style:double;}
+      .cell.base{background:var(--cell-base);border-style:double;}
+      .cell.boss{background:var(--cell-boss);border-style:double;}
+      .cell.unopened{background:var(--cell-unopened);border-style:double;box-shadow:inset 0 0 10px 4px rgba(0,0,0,0.85);}
+      .cell.unopened.par-bonus{border-style:dashed;}
+      .cell.par-unknown{border-color:var(--par-unknown);}
+      .cell.par-bonus{border-color:var(--par-bonus);}
+      .cell.par-crit{border-color:var(--par-crit);border-style:double;}
+      .cell.par-bonus.body,.cell.par-bonus.base,.cell.par-bonus.boss,.cell.par-bonus.unopened{background:#5c4728;}
+      .cell.par-crit.body,.cell.par-crit.base,.cell.par-crit.boss,.cell.par-crit.unopened{background:#a67c38;}
+      .cell.unopened .corridor.n{background-image:linear-gradient(to top,rgba(0,0,0,0.6),transparent 65%);}
+      .cell.unopened .corridor.s{background-image:linear-gradient(to bottom,rgba(0,0,0,0.6),transparent 65%);}
+      .cell.unopened .corridor.e{background-image:linear-gradient(to right,rgba(0,0,0,0.6),transparent 65%);}
+      .cell.unopened .corridor.w{background-image:linear-gradient(to left,rgba(0,0,0,0.6),transparent 65%);}
+      .cell.key-held{border-color:#e6e6e6 !important;}
+      .cell.par-crit.key-held,.cell.par-unknown.key-held{border-style:solid !important;}
+      .cell.par-crit.key-held{border-color:#ffe14d !important;}
+      .cell.par-bonus.key-held{border-color:#b8b0a0 !important;border-style:dashed !important;}
+      .unopened-question{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+        font-family:'Trebuchet MS',sans-serif;font-weight:900;font-size:{FONT}px;line-height:1;
+        color:var(--accent);text-shadow:0 0 4px rgba(0,0,0,0.9),0 1px 2px rgba(0,0,0,0.9);}
+    `;
+
+    // ---- layout geometry for edge E (matches the %-based CSS grid) ----------
+    const geom = (E) => {
+      const pad = 0.013 * E, gap = 0.013 * E;
+      const cell = (E - 2 * pad - 7 * gap) / 8;
+      return { pad, gap, cell, step: cell + gap };
+    };
+
+    // ---- atlas + mesh machinery (unchanged from the canvas pipeline) --------
+    const hexToImageData = (w, h, hex) => {
+      const bytes = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+      return new ImageData(bytes, w, h);
+    };
+    const SHAPE_ROT = {
+      triangle:{pitch:0,yaw:0,roll:0,scale:1,tx:0,ty:0}, rectangle:{pitch:0,yaw:0,roll:0,scale:1,tx:0,ty:0},
+      wedge:{pitch:0,yaw:0,roll:0,scale:1,tx:0,ty:0}, corner:{pitch:0,yaw:0,roll:0,scale:1,tx:0,ty:0},
+      pentagon:{pitch:0,yaw:0,roll:0,scale:1,tx:0,ty:0}, diamond:{pitch:0,yaw:0.1,roll:0,scale:1,tx:0,ty:0},
+      shield:{pitch:-0.5,yaw:0.2,roll:0,scale:1,tx:0,ty:0}, crescent:{pitch:0,yaw:0,roll:0,scale:1,tx:0,ty:0},
+    };
+    const shapeOf = (name) => { const m = (name||"").toLowerCase().match(/^[^_]+_(.+)$/); return m ? m[1] : ""; };
+    const rasterizeMesh = (sw, sh, mvpS, ptsS, name) => {
+      if (!(sw > 0 && sh > 0) || !mvpS || !ptsS) return null;
+      const m = mvpS.split(",").map(Number);
+      if (m.length !== 16) return null;
+      const rawVerts = [];
+      for (const chunk of ptsS.split(";")) {
+        const p = chunk.split(",").map(Number);
+        if (p.length !== 6) continue;
+        rawVerts.push({ x:p[0], y:p[1], z:p[2], r:p[3], g:p[4], b:p[5] });
+      }
+      if (rawVerts.length < 3) return null;
+      const rot = SHAPE_ROT[shapeOf(name)] || {pitch:0,yaw:0,roll:0,scale:1,tx:0,ty:0};
+      const PITCH=rot.pitch, YAW=rot.yaw, ROLL=rot.roll||0, SCALE=rot.scale==null?1:rot.scale, TX=rot.tx||0, TY=rot.ty||0;
+      const cP=Math.cos(PITCH),sP=Math.sin(PITCH),cY=Math.cos(YAW),sY=Math.sin(YAW),cR=Math.cos(ROLL),sR=Math.sin(ROLL);
+      const verts = rawVerts.map((v) => {
+        const sx=v.x*SCALE, sy=v.y*SCALE, sz=v.z*SCALE;
+        const y1=sy*cP - sz*sP, z1=sy*sP + sz*cP;
+        const x2=sx*cY + z1*sY, z2=-sx*sY + z1*cY;
+        const x3=x2*cR - y1*sR, y3=x2*sR + y1*cR;
+        return { x:x3, y:y3, z:z2, r:v.r, g:v.g, b:v.b };
+      });
+      const ATLAS_PX=64, SS=4, fit=ATLAS_PX/Math.max(sw,sh);
+      const outW=Math.max(1,Math.round(sw*fit)), outH=Math.max(1,Math.round(sh*fit)), rw=outW*SS, rh=outH*SS;
+      const P=new Array(verts.length);
+      for (let i=0;i<verts.length;i++){ const v=verts[i];
+        const cx=m[0]*v.x+m[4]*v.y+m[8]*v.z+m[12], cy=m[1]*v.x+m[5]*v.y+m[9]*v.z+m[13];
+        const cz=m[2]*v.x+m[6]*v.y+m[10]*v.z+m[14], cw=m[3]*v.x+m[7]*v.y+m[11]*v.z+m[15];
+        if (cw>0) P[i]={ px:(cx/cw*0.5+0.5)*rw+TX*rw, py:(cy/cw*-0.5+0.5)*rh-TY*rh, z:cz/cw, r:v.r, g:v.g, b:v.b };
+      }
+      const px=new Uint8ClampedArray(rw*rh*4), zbuf=new Float32Array(rw*rh); zbuf.fill(Infinity);
+      const edge=(ax,ay,bx,by,cx,cy)=>(bx-ax)*(cy-ay)-(by-ay)*(cx-ax);
+      const LIGHT={x:-0.5,y:0.71,z:-0.5}, BASE=0.70, RANGE=0.85;
+      const llen=Math.hypot(LIGHT.x,LIGHT.y,LIGHT.z)||1, lx=LIGHT.x/llen, ly=LIGHT.y/llen, lz=LIGHT.z/llen;
+      for (let t=0;t+2<verts.length;t+=3){
+        const v0=P[t],v1=P[t+1],v2=P[t+2]; if(!v0||!v1||!v2) continue;
+        const area=edge(v0.px,v0.py,v1.px,v1.py,v2.px,v2.py); if(area===0) continue;
+        const a=verts[t],b=verts[t+1],c=verts[t+2];
+        const nx=(b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y), ny=(b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z), nz=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+        const nlen=Math.hypot(nx,ny,nz)||1, dot=(nx*lx+ny*ly+nz*lz)/nlen, shade=BASE+RANGE*(0.5+0.5*dot);
+        const minx=Math.max(0,Math.floor(Math.min(v0.px,v1.px,v2.px))), maxx=Math.min(rw-1,Math.floor(Math.max(v0.px,v1.px,v2.px)));
+        const miny=Math.max(0,Math.floor(Math.min(v0.py,v1.py,v2.py))), maxy=Math.min(rh-1,Math.floor(Math.max(v0.py,v1.py,v2.py)));
+        for (let y=miny;y<=maxy;y++) for (let x=minx;x<=maxx;x++){
+          const fx=x+0.5,fy=y+0.5;
+          const w0=edge(v1.px,v1.py,v2.px,v2.py,fx,fy)/area, w1=edge(v2.px,v2.py,v0.px,v0.py,fx,fy)/area, w2=edge(v0.px,v0.py,v1.px,v1.py,fx,fy)/area;
+          if (w0<0||w1<0||w2<0) continue;
+          const z=w0*v0.z+w1*v1.z+w2*v2.z, off=y*rw+x; if (z>=zbuf[off]) continue;
+          zbuf[off]=z; const po=off*4;
+          px[po]=(w0*v0.r+w1*v1.r+w2*v2.r)*shade; px[po+1]=(w0*v0.g+w1*v1.g+w2*v2.g)*shade;
+          px[po+2]=(w0*v0.b+w1*v1.b+w2*v2.b)*shade; px[po+3]=255;
+        }
+      }
+      const out=new Uint8ClampedArray(outW*outH*4), NSUB=SS*SS;
+      for (let y=0;y<outH;y++) for (let x=0;x<outW;x++){
+        let sr=0,sg=0,sb=0,sa=0;
+        for (let sy=0;sy<SS;sy++){ let o=((y*SS+sy)*rw+x*SS)*4;
+          for (let sx=0;sx<SS;sx++,o+=4){ const av=px[o+3]; if(av===0) continue; sr+=px[o]*av; sg+=px[o+1]*av; sb+=px[o+2]*av; sa+=av; } }
+        if (sa===0) continue; const q=(y*outW+x)*4;
+        out[q]=sr/sa; out[q+1]=sg/sa; out[q+2]=sb/sa; out[q+3]=sa/NSUB;
+      }
+      return new ImageData(out, outW, outH);
+    };
+    const iconCanvas = (img, key) => {
+      const hit = iconCanvasCache[key];
+      if (hit && hit.img === img) return hit.canvas;
+      const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+      c.getContext("2d").putImageData(img, 0, 0);
+      iconCanvasCache[key] = { img, canvas: c }; return c;
+    };
+    const keyIcon = (name) => { const img = keyAtlasImageData[name.toLowerCase()]; return img ? iconCanvas(img, "k:"+name.toLowerCase()) : null; };
+    const imgIcon = (name) => { const img = imgAtlasImageData[name]; return img ? iconCanvas(img, "i:"+name) : null; };
+
+    // ---- room parsing -------------------------------------------------------
+    const parseDoors = (name) => {
+      const d = { n:false, s:false, e:false, w:false };
+      if (name === "4WAY") { d.n=d.s=d.e=d.w=true; return d; }
+      if (name.startsWith("DE_")) { const dir=name.slice(3).toLowerCase();
+        if (dir.startsWith("north")) d.n=true; else if (dir.startsWith("south")) d.s=true;
+        else if (dir.startsWith("east")) d.e=true; else if (dir.startsWith("west")) d.w=true; return d; }
+      if (name.startsWith("2WAY_")||name.startsWith("3WAY_")) { for (const c of name.split("_")[1]) {
+        if (c==="N") d.n=true; if (c==="S") d.s=true; if (c==="E") d.e=true; if (c==="W") d.w=true; } return d; }
+      if (name.startsWith("UNOPENED_")) { const dir=name.split("_")[1];
+        if (dir==="NORTH") d.n=true; if (dir==="SOUTH") d.s=true; if (dir==="EAST") d.e=true; if (dir==="WEST") d.w=true; return d; }
+      return d;
+    };
+    const bodyKind = (names) => {
+      for (const n of names) if (n==="ICON_BASE") return "base";
+      for (const n of names) if (n==="ICON_BOSS") return "boss";
+      for (const n of names) if (n.startsWith("UNOPENED_")) return "unopened";
+      for (const n of names) if (n.startsWith("2WAY_")||n.startsWith("3WAY_")||n==="4WAY"||n.startsWith("DE_")) return "body";
+      return "";
+    };
+    // Per-room derived data, shared by chrome-HTML and icon compositing.
+    const roomInfo = (r) => {
+      const kind = bodyKind(r.images);
+      let body = null;
+      for (const n of r.images) if (n.startsWith("UNOPENED_")||n.startsWith("2WAY_")||n.startsWith("3WAY_")||n==="4WAY"||n.startsWith("DE_")||n==="ICON_BASE"||n==="ICON_BOSS") { body=n; break; }
+      let canOpen=false, hasKeyblock=false;
+      if (kind==="unopened") for (const n of r.images) {
+        const l=n.toLowerCase();
+        if (/^([a-z]+)_([a-z]+)$/.test(l) && COLORS[l.split("_")[0]] && SHAPE_NAMES.has(l.split("_")[1])) {
+          hasKeyblock=true; if (heldKeys.has(l)) canOpen=true;
+        }
+      }
+      return { kind, body, canOpen, hasKeyblock };
+    };
+
+    // ---- chrome: build icon-less grid HTML, render via foreignObject --------
+    const buildChromeHTML = (rooms, E) => {
+      const cells = new Array(64).fill('<div class="cell"></div>');
+      for (const r of rooms) {
+        if (r.gx<0||r.gx>7||r.gz<0||r.gz>7) continue;
+        const info = roomInfo(r);
+        let cls = "cell";
+        if (info.kind) cls += " " + info.kind;
+        if (info.kind) {
+          const pc = (r.parity==="bonus") ? "par-bonus" : (r.parity==="crit") ? "par-crit" : "par-unknown";
+          cls += " " + pc;
+        }
+        if (info.canOpen) cls += " key-held";
+        let inner = "";
+        if (info.body) { const d = parseDoors(info.body);
+          if (d.n) inner += '<div class="corridor n"></div>';
+          if (d.s) inner += '<div class="corridor s"></div>';
+          if (d.e) inner += '<div class="corridor e"></div>';
+          if (d.w) inner += '<div class="corridor w"></div>';
+        }
+        if (info.body && info.body.endsWith("_QUESTION")) inner += '<div class="unopened-question">?</div>';
+        cells[r.gz*8 + r.gx] = '<div class="' + cls + '">' + inner + '</div>';
+      }
+      return '<div class="grid" style="width:' + E + 'px;height:' + E + 'px">' + cells.join("") + '</div>';
+    };
+
+    // ---- icon compositing (drawn on top of the chrome) ----------------------
+    const drawFit = (canvas, cx, cy, targetW, smooth) => {
+      const s = targetW / Math.max(canvas.width, canvas.height);
+      const dw = canvas.width*s, dh = canvas.height*s;
+      ctx.imageSmoothingEnabled = smooth;
+      ctx.drawImage(canvas, cx - dw/2, cy - dh/2, dw, dh);
+      ctx.imageSmoothingEnabled = true;
+    };
+    // Exact match to the original CSS `filter: drop-shadow(4cqw 7cqw 4cqw
+    // rgba(0,0,0,0.9))`. ctx.filter is the SAME filter primitive Blink uses for
+    // CSS drop-shadow (unlike ctx.shadow*, which renders heavier), so this
+    // reproduces the panel's icon shadow. cqw = the icon cell's content-box
+    // width (~0.76*cell), so 4/7/4 cqw ~= 3.0/5.3/3.0% of the cell.
+    const iconShadow = (on, cell) => {
+      if (on) {
+        const ox = (0.030 * cell).toFixed(2), oy = (0.053 * cell).toFixed(2), bl = (0.030 * cell).toFixed(2);
+        ctx.filter = "drop-shadow(" + ox + "px " + oy + "px " + bl + "px rgba(0,0,0,0.9))";
+      } else {
+        ctx.filter = "none";
+      }
+    };
+    const compositeIcons = (rooms, E) => {
+      const g = geom(E);
+      const playerDraws = [];   // deferred: player markers draw LAST, above all cells
+      for (const r of rooms) {
+        if (r.gx<0||r.gx>7||r.gz<0||r.gz>7) continue;
+        const info = roomInfo(r);
+        const x0 = g.pad + r.gx*g.step, y0 = g.pad + r.gz*g.step, cx = x0 + g.cell/2, cy = y0 + g.cell/2;
+        const main=[], players=[], pgt=[];
+        for (const n of r.images) if (n==="ICON_BASE"||n==="ICON_BOSS") main.push(n);
+        for (const n of r.images) {
+          if (n===info.body||n==="ICON_BASE"||n==="ICON_BOSS") continue;
+          if (n.startsWith("UNOPENED_")||n.startsWith("2WAY_")||n.startsWith("3WAY_")||n==="4WAY"||n.startsWith("DE_")) continue;
+          if (n.startsWith("PLAYER_")) players.push(n);
+          else if (n==="GROUP_GATESTONE"||n.startsWith("PGT_")) pgt.push(n);
+          else main.push(n);
+        }
+        // Centre overlays: keys / door icons / base-boss.
+        if (main.length) {
+          const nN = main.length, slotW = (nN===1) ? 0 : 0.4*g.cell;
+          iconShadow(true, g.cell);
+          for (let i=0;i<nN;i++){ const name=main[i];
+            const mx = cx + (i-(nN-1)/2)*slotW;
+            let c=null, tw=0;
+            if (name==="ICON_BASE"||name==="ICON_BOSS") { c=imgIcon(name); tw=(nN===1?0.66:0.4)*g.cell; }
+            else if (name.startsWith("DOOR_")) { c=imgIcon(name); tw=(nN===1?0.62:0.4)*g.cell; }
+            else { c=keyIcon(name); tw=(nN===1?0.8:0.5)*g.cell; }
+            if (c) drawFit(c, mx, cy, tw, name.charAt(0)!=="I" && !name.startsWith("DOOR_"));
+            else { ctx.shadowColor="transparent"; ctx.fillStyle="#888"; ctx.fillRect(mx-0.18*g.cell, cy-0.18*g.cell, 0.36*g.cell, 0.36*g.cell); }
+          }
+          iconShadow(false, g.cell);
+        }
+        // Player markers: deferred to a final pass so they sit ABOVE every
+        // other cell's overlays (keys, doors, gatestones, base/boss), not just
+        // this cell's. Slots: 1 TL,2 TR,3 BL,4 BM,5 BR.
+        if (players.length) playerDraws.push({ x0, y0, players });
+        // PGT/GGS: centre (nudged right 56%), GGS on top, PGTs offset sideways when crowded.
+        if (pgt.length) {
+          pgt.sort((a,b)=>(a==="GROUP_GATESTONE"?1:0)-(b==="GROUP_GATESTONE"?1:0));
+          const crowded = pgt.length>1, bx = x0 + g.cell*0.56, by = cy;
+          iconShadow(true, g.cell);
+          for (const n of pgt) { let mx=bx;
+            if (n!=="GROUP_GATESTONE" && crowded) mx += (n==="PGT_RED"?-1:1)*g.cell*0.32;
+            const c = keyIcon(n);
+            if (c) drawFit(c, mx, by, 0.72*g.cell, true); }
+          iconShadow(false, g.cell);
+        }
+      }
+      // Top pass: player markers over everything drawn above.
+      for (const d of playerDraws) {
+        const ins = 0.2*g.cell;
+        const pos = { 1:[d.x0+ins,d.y0+ins], 2:[d.x0+g.cell-ins,d.y0+ins], 3:[d.x0+ins,d.y0+g.cell-ins],
+                      4:[d.x0+g.cell-ins,d.y0+g.cell-ins], 5:[d.x0+g.cell/2,d.y0+g.cell/2] };  // 4 = BR, 5 = centre
+        iconShadow(true, g.cell);
+        for (const n of d.players) { const s=PLAYER_SLOTS[n]||1, p=pos[s], c=imgIcon(n);
+          if (c) drawFit(c, p[0], p[1], 0.32*g.cell, false); }
+        iconShadow(false, g.cell);
+      }
+    };
+
+    // ---- full render: chrome via FO (async), then icons, then export --------
+    let rendering = false, dirty = false;
+    const doRender = () => {
+      if (rendering) { dirty = true; return; }
+      rendering = true; dirty = false;
+      const E = EDGE;                     // logical (chrome authored here)
+      const RE = renderEdge();            // pixels (canvas / rasterised at DPR)
+      const gE = geom(E);
+      // ? is 85cqw = 85% of the content box (~cell-10) ~= 0.65*cell.
+      const css = CHROME_CSS.replace("{FONT}", (0.646 * gE.cell).toFixed(1));
+      const chrome = lastRooms ? buildChromeHTML(lastRooms, E) : ('<div class="grid" style="width:'+E+'px;height:'+E+'px"></div>');
+      // viewBox maps the E-unit content onto an RE-px raster, so borders/text
+      // stay authored-size but rasterise crisply at device resolution.
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+RE+'" height="'+RE+'" viewBox="0 0 '+E+' '+E+'">' +
+        '<foreignObject width="'+E+'" height="'+E+'">' +
+        '<div xmlns="http://www.w3.org/1999/xhtml" style="font-family:\'Trebuchet MS\',sans-serif">' +
+        '<style><![CDATA[' + css + ']]></style>' + chrome + '</div></foreignObject></svg>';
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, SURF, SURF);
+        if (deadReason) { ctx.fillStyle = "#6e0f0f"; ctx.fillRect(0, 0, RE, RE); }
+        ctx.drawImage(img, 0, 0, RE, RE);
+        // Very faint quadrant guide lines through the map midpoints (splits the
+        // 8x8 into four 4x4 quadrants). Drawn under the icons.
+        ctx.filter = "none";
+        ctx.strokeStyle = "rgba(255,255,255,0.05)";
+        ctx.lineWidth = Math.max(1, RE / EDGE);       // ~1 logical px
+        ctx.beginPath();
+        ctx.moveTo(RE / 2, 0); ctx.lineTo(RE / 2, RE);
+        ctx.moveTo(0, RE / 2); ctx.lineTo(RE, RE / 2);
+        ctx.stroke();
+        // Icons composite in RE space; geom is linear so they align with the
+        // viewBox-scaled chrome.
+        try { if (lastRooms) compositeIcons(lastRooms, RE); } catch (e) { post("render_err:composite " + (e.message||e)); }
+        try {
+          const data = ctx.getImageData(0, 0, RE, RE).data;
+          // "px:<RE>|" header + raw RGBA. Lua uses RE as the source region size;
+          // it draws that to the (smaller) logical edge on screen.
+          const hdr = "px:" + RE + "|";
+          const msg = new Uint8Array(hdr.length + data.length);
+          for (let i = 0; i < hdr.length; i++) msg[i] = hdr.charCodeAt(i);
+          msg.set(data, hdr.length);
+          fetch("https://bolt-api/send-message", { method:"POST", body: msg }).catch(()=>{});
+        } catch (e) { post("render_err:getImageData " + (e.message||e)); }
+        rendering = false;
+        if (dirty) doRender();
+      };
+      img.onerror = () => { post("render_err:svg-load-failed"); rendering = false; if (dirty) doRender(); };
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    };
+    const repaint = () => { if (rendering) { dirty = true; } else { requestAnimationFrame(doRender); } };
+
+    // ---- messages -----------------------------------------------------------
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      let c = e.data.content;
+      if (c instanceof Uint8Array) c = new TextDecoder().decode(c);
+      else if (c instanceof ArrayBuffer) c = new TextDecoder().decode(new Uint8Array(c));
+      if (typeof c !== "string") return;
+      if (c.startsWith("size:")) { const v = parseInt(c.slice(5), 10); if (v > 0 && v <= SURF) { EDGE = v; repaint(); } return; }
+      if (c.startsWith("hdr:")) { setHeader(c.slice(4).split("|")); return; }
+      if (c.startsWith("dead:")) {
+        deadReason = c.slice(5);
+        const bar = document.getElementById("bar");
+        bar.classList.toggle("dead", !!deadReason); bar.title = deadReason || "";
+        document.getElementById("title").textContent = deadReason ? "FLOOR DEAD" : "DG Map";
+        repaint(); return;
+      }
+      if (c.startsWith("rooms:")) { try { lastRooms = JSON.parse(c.slice(6)); } catch (_) { return; } repaint(); return; }
+      if (c.startsWith("held_keys:")) { heldKeys = new Set(c.slice(10).split(",").filter(Boolean)); repaint(); return; }
+      if (c.startsWith("key_mesh:")) {
+        for (const ln of c.slice(9).split("\n")) { const p = ln.split("|"); if (p.length!==5) continue;
+          const [name,swS,shS,mvpS,ptsS] = p;
+          keyMeshRaw[name.toLowerCase()] = { sw:+swS, sh:+shS, mvp:mvpS, pts:ptsS };
+          const img = rasterizeMesh(+swS,+shS,mvpS,ptsS,name); if (img) keyAtlasImageData[name.toLowerCase()] = img;
+        }
+        repaint(); return;
+      }
+      if (c.startsWith("img_atlas:")) {
+        for (const ln of c.slice(10).split("\n")) { const p = ln.split("|"); if (p.length!==4) continue;
+          const [name,w,h,hex] = p; imgAtlasImageData[name] = hexToImageData(+w,+h,hex); }
+        repaint(); return;
+      }
+      if (c.startsWith("shape_rot:")) {
+        try { const inc = JSON.parse(c.slice(10));
+          for (const s of Object.keys(inc)) SHAPE_ROT[s] = Object.assign({pitch:0,yaw:0,roll:0,scale:1,tx:0,ty:0}, SHAPE_ROT[s]||{}, inc[s]);
+          const touched = new Set(Object.keys(inc));
+          for (const key of Object.keys(keyMeshRaw)) { if (!touched.has(shapeOf(key))) continue;
+            const raw = keyMeshRaw[key]; const img = rasterizeMesh(raw.sw,raw.sh,raw.mvp,raw.pts,key); if (img) keyAtlasImageData[key] = img; }
+          repaint();
+        } catch (_) {}
+        return;
+      }
+    });
+
+    repaint();
+    post("ready");
+  </script>
+</body></html>

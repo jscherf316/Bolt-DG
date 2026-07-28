@@ -1,0 +1,596 @@
+<!doctype html>
+<html><head><style>
+  :root {
+    --bg: #3e352a;
+    --bg-alt: #4b402f;
+    --bg-hover: #5a4d38;
+    --border: #6b5b3f;
+    --border-strong: #967a4a;
+    --text: #f0d493;
+    --text-dim: #b8a17a;
+    --text-faint: #8a7454;
+    --accent: #ffcf6b;
+  }
+  html, body { margin: 0; padding: 0; background: transparent; color: var(--text);
+    font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; height: 100%; user-select: none; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+
+  .card {
+    width: 100%; height: 100%; box-sizing: border-box;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    display: flex; flex-direction: column;
+  }
+  .header {
+    padding: 8px 10px;
+    cursor: move;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #4b402f 0%, #3e352a 100%);
+    flex: none;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .title { font-size: 13px; font-weight: 700; color: var(--accent);
+    letter-spacing: 0.4px; text-transform: uppercase;
+    text-shadow: 1px 1px 0 rgba(0,0,0,0.45); }
+  .sub { color: var(--text-dim); font-size: 11px; }
+  .btn-ignore-all {
+    margin-left: auto;
+    cursor: pointer;
+    background: rgba(0,0,0,0.25);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font: 600 11px "Trebuchet MS", sans-serif;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .btn-ignore-all:hover { background: rgba(214,124,76,0.25); color: var(--accent); border-color: var(--border-strong); }
+  .btn-ignore-all:active { background: rgba(214,124,76,0.4); }
+  .btn-classify {
+    cursor: pointer;
+    background: rgba(88,166,255,0.15);
+    color: var(--accent);
+    border: 1px solid rgba(88,166,255,0.35);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font: 600 12px "Trebuchet MS", sans-serif;
+  }
+  .btn-classify:hover { background: rgba(88,166,255,0.25); }
+  .picker-row {
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px;
+  }
+  .picker-row:hover { background: var(--bg-hover); }
+
+  .tab {
+    cursor: pointer;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font: 600 11px "Trebuchet MS", sans-serif;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .tab:hover { color: var(--accent); }
+  .tab.active { background: rgba(88,166,255,0.15); color: var(--accent); border-color: rgba(88,166,255,0.35); }
+  .tab .cnt { color: var(--text-faint); margin-left: 4px; font-weight: 700; }
+  .tab.active .cnt { color: var(--accent); }
+
+  .row.match { grid-template-columns: 1fr auto auto; }
+  .row.match .name { color: var(--text); font-weight: 600; }
+  .row.match .name .t { color: var(--text-dim); font-weight: 400; margin-left: 4px; font-size: 10px; }
+  .row.match .score { color: var(--text-dim); font-family: "SF Mono", Consolas, monospace; font-size: 11px; }
+  .row.match .score.exact { color: var(--accent); }
+  .row.match .score.soft  { color: #d67c4c; }
+  .row.match .coords { color: var(--text-faint); font-family: "SF Mono", Consolas, monospace; }
+
+  .list {
+    flex: 1; overflow-y: auto; padding: 6px 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .list::-webkit-scrollbar { width: 8px; }
+  .list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .row:last-child { border-bottom: none; }
+  .row .idx { font-weight: 700; color: var(--accent); text-align: right; }
+  .row .meta { color: var(--text-dim); }
+  .row .meta b { color: var(--text); font-weight: 700; }
+  .row .coords { color: var(--text-faint); font-family: "SF Mono", Consolas, monospace; }
+  .empty { color: var(--text-faint); font-size: 12px; text-align: center; padding: 30px; }
+
+  .row { cursor: pointer; }
+  .row:hover { background: var(--bg-hover); }
+
+  .modal-back {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: none; align-items: center; justify-content: center;
+    z-index: 10;
+  }
+  .modal-back.on { display: flex; }
+  .modal {
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 14px;
+    min-width: 220px;
+    max-width: 320px;
+    display: flex; flex-direction: column; gap: 10px;
+    align-items: stretch;
+  }
+  .modal h4 { margin: 0; color: var(--accent); font-size: 13px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .modal canvas { background: #1e1a12; border: 1px solid var(--border); border-radius: 4px; display: block; }
+  .modal .info { color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+</style></head><body>
+  <div class="card">
+    <div class="header" id="header">
+      <button class="tab active" data-tab="icons">Icons<span class="cnt" id="cnt-icons">0</span></button>
+      <button class="tab" data-tab="classified">Classified<span class="cnt" id="cnt-classified">0</span></button>
+      <button class="tab" data-tab="ignored">Ignored<span class="cnt" id="cnt-ignored">0</span></button>
+      <button class="btn-ignore-all" id="ignore-all" title="Ignore every entry currently in the visible list">Ignore all</button>
+    </div>
+    <div id="queue-toolbar" style="padding:6px 10px; border-bottom:1px solid var(--border); display:flex; gap:6px;">
+      <button class="btn-classify" id="classify" title="Assign a name to the first queue item from the bundled name list">Classify #1</button>
+    </div>
+    <div class="list" id="list-icons"><div class="empty">No unclassified icons yet...</div></div>
+    <div class="list" id="list-classified" style="display:none;"><div class="empty">No classified icons yet...</div></div>
+    <div class="list" id="list-ignored" style="display:none;"><div class="empty">No ignored icons yet...</div></div>
+    <div class="modal-back" id="picker">
+      <div class="modal" style="min-width:280px; max-width:340px; overflow:hidden;">
+        <h4>Assign to queue #1</h4>
+        <div style="display:flex; gap:12px;">
+          <div style="flex:1;">
+            <div style="color:var(--text-dim); font-size:11px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:4px;">Color</div>
+            <div id="picker-colors"></div>
+          </div>
+          <div style="flex:1;">
+            <div style="color:var(--text-dim); font-size:11px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:4px;">Shape</div>
+            <div id="picker-shapes"></div>
+          </div>
+        </div>
+        <div id="picker-selection" style="color:var(--text-dim); font-size:11px; font-variant-numeric:tabular-nums; text-align:center; min-height:14px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-back" id="modal">
+    <div class="modal">
+      <h4 id="modal-title">Resource</h4>
+      <canvas id="preview" width="220" height="220"></canvas>
+      <div class="info" id="modal-info"></div>
+    </div>
+  </div>
+
+  <script>
+    const header = document.getElementById("header");
+    const listIcons = document.getElementById("list-icons");
+    const listClassified = document.getElementById("list-classified");
+    const listIgnored = document.getElementById("list-ignored");
+    const cntIcons = document.getElementById("cnt-icons");
+    const cntClassified = document.getElementById("cnt-classified");
+    const cntIgnored = document.getElementById("cnt-ignored");
+    const picker = document.getElementById("picker");
+    const pickerColors = document.getElementById("picker-colors");
+    const pickerShapes = document.getElementById("picker-shapes");
+    const pickerSelection = document.getElementById("picker-selection");
+    const classifyBtn = document.getElementById("classify");
+    const COLORS = ["blue", "purple", "green", "silver", "orange", "crimson", "gold", "yellow"];
+    const SHAPES = ["triangle", "rectangle", "wedge", "corner", "pentagon", "diamond", "shield", "crescent"];
+    let selColor = null, selShape = null;
+    const queueToolbar = document.getElementById("queue-toolbar");
+    let unassignedNames = [];
+
+    // Toolbar visibility follows the Queue tab.
+    const updateToolbar = () => {
+      queueToolbar.style.display = (activeTab === "icons") ? "flex" : "none";
+    };
+
+    // Two-column color+shape picker. Once one from each column is chosen we
+    // build the "<color>_<shape>" name, send it to Lua as the classification
+    // for queue #1, and close the picker.
+    const rebuildPicker = () => {
+      const takenNames = new Set(unassignedNames.length ? [] : []);
+      // A name is "taken" when it's NOT in unassignedNames but WOULD be a valid
+      // color_shape combo. So invert: build the set of unassigned combos.
+      const freeSet = new Set(unassignedNames);
+      const paint = (host, values, sel, isColor) => {
+        host.innerHTML = "";
+        for (const v of values) {
+          const d = document.createElement("div");
+          d.className = "picker-row";
+          d.textContent = v;
+          if (v === sel) d.style.background = "rgba(88,166,255,0.25)";
+          // Grey out combinations whose combined name is already taken (only
+          // when we have a partial selection from the OTHER column).
+          const partner = isColor ? selShape : selColor;
+          if (partner) {
+            const combo = isColor ? `${v}_${partner}` : `${partner}_${v}`;
+            if (!freeSet.has(combo)) {
+              d.style.opacity = "0.35";
+              d.style.textDecoration = "line-through";
+            }
+          }
+          d.addEventListener("click", () => {
+            if (isColor) selColor = v; else selShape = v;
+            tryClassifyOrRedraw();
+          });
+          host.appendChild(d);
+        }
+      };
+      paint(pickerColors, COLORS, selColor, true);
+      paint(pickerShapes, SHAPES, selShape, false);
+      pickerSelection.textContent = (selColor || "...") + "_" + (selShape || "...");
+    };
+    const tryClassifyOrRedraw = () => {
+      if (selColor && selShape) {
+        const name = `${selColor}_${selShape}`;
+        fetch("https://bolt-api/send-message", { method: "POST", body: `classify_first:${name}` }).catch(() => {});
+        picker.classList.remove("on");
+        selColor = null; selShape = null;
+      } else {
+        rebuildPicker();
+      }
+    };
+    classifyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selColor = null; selShape = null;
+      rebuildPicker();
+      picker.classList.add("on");
+    });
+    picker.addEventListener("click", (e) => {
+      if (e.target === picker) {
+        picker.classList.remove("on");
+        selColor = null; selShape = null;
+      }
+    });
+    header.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      // Let button / tab clicks through - only start reposition on the header bg.
+      if (e.target.closest(".btn-ignore-all") || e.target.closest(".tab")) return;
+      fetch("https://bolt-api/start-reposition?h=0&v=0").catch(() => {});
+    });
+    document.getElementById("ignore-all").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (activeTab === "icons") {
+        fetch("https://bolt-api/send-message", { method: "POST", body: "ignore_all_icons" }).catch(() => {});
+      }
+    });
+
+    // Tab switching: Icons - Classified - Ignored.
+    let activeTab = "icons";
+    const listByTab = { icons: listIcons, classified: listClassified, ignored: listIgnored };
+    // Toolbar starts visible for Icons tab.
+    setTimeout(() => updateToolbar && updateToolbar(), 0);
+    header.querySelectorAll(".tab").forEach((t) => {
+      t.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const tab = t.dataset.tab;
+        if (tab === activeTab) return;
+        activeTab = tab;
+        header.querySelectorAll(".tab").forEach((x) =>
+          x.classList.toggle("active", x.dataset.tab === tab));
+        updateToolbar();
+        for (const k of Object.keys(listByTab)) {
+          listByTab[k].style.display = (k === tab) ? "" : "none";
+        }
+      });
+    });
+
+    const modal = document.getElementById("modal");
+    const previewCanvas = document.getElementById("preview");
+    const modalTitle = document.getElementById("modal-title");
+    const modalInfo = document.getElementById("modal-info");
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.remove("on"); });
+
+    // Renders a top-down XZ scatter of every captured vertex (position + color).
+    // `verts` is an array of {x, y, z, r, g, b}. Called both with the initial
+    // 5 samples (immediate) and with the full point cloud when the modal-open
+    // preview fetch returns.
+    const drawScatter = (verts, ptSize) => {
+      const w = previewCanvas.width, h = previewCanvas.height;
+      const ctx = previewCanvas.getContext("2d");
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#1e1a12"; ctx.fillRect(0, 0, w, h);
+      if (!verts.length) return;
+      let x0 =  Infinity, x1 = -Infinity;
+      let z0 =  Infinity, z1 = -Infinity;
+      for (const v of verts) {
+        if (v.x < x0) x0 = v.x; if (v.x > x1) x1 = v.x;
+        if (v.z < z0) z0 = v.z; if (v.z > z1) z1 = v.z;
+      }
+      if (x0 === x1) { x0 -= 1; x1 += 1; }
+      if (z0 === z1) { z0 -= 1; z1 += 1; }
+      const pad = 12;
+      const sx = (x) => pad + ((x - x0) / (x1 - x0)) * (w - pad * 2);
+      const sz = (z) => pad + ((z - z0) / (z1 - z0)) * (h - pad * 2);
+      // Draw the point cloud. For a full-mesh preview we skip the outline &
+      // origin axes - they're only useful for the tiny 5-sample view.
+      const drawOutline = ptSize >= 4;
+      if (drawOutline) {
+        ctx.strokeStyle = "rgba(150,120,80,0.45)"; ctx.lineWidth = 1;
+        ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+      }
+      if (ptSize <= 1.5) {
+        // Fast path for big point clouds: rectangles, no per-point stroke.
+        for (const v of verts) {
+          ctx.fillStyle = `rgb(${v.r},${v.g},${v.b})`;
+          ctx.fillRect(sx(v.x) - ptSize/2, sz(v.z) - ptSize/2, ptSize, ptSize);
+        }
+      } else {
+        for (const v of verts) {
+          ctx.fillStyle = `rgb(${v.r},${v.g},${v.b})`;
+          ctx.strokeStyle = "rgba(0,0,0,0.65)"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.arc(sx(v.x), sz(v.z), ptSize, 0, Math.PI * 2);
+          ctx.fill(); ctx.stroke();
+        }
+      }
+    };
+
+    const renderIcons = (rows) => {
+      cntIcons.textContent = rows.length;
+      if (!rows.length) {
+        listIcons.innerHTML = '<div class="empty">No unclassified icons yet...</div>';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      rows.forEach((r, i) => {
+        const d = document.createElement("div");
+        d.className = "row";
+        const idx = document.createElement("span"); idx.className = "idx";
+        idx.textContent = (i + 1); d.appendChild(idx);
+        const meta = document.createElement("span"); meta.className = "meta";
+        meta.innerHTML = `<b>${r.k}</b> n=${r.n}`;
+        d.appendChild(meta);
+        const co = document.createElement("span"); co.className = "coords";
+        co.textContent = `${r.sw}x${r.sh}`;
+        d.appendChild(co);
+        d.addEventListener("click", () => openIconPreview(i, r));
+        frag.appendChild(d);
+      });
+      const st = listIcons.scrollTop;
+      listIcons.innerHTML = "";
+      listIcons.appendChild(frag);
+      listIcons.scrollTop = st;
+    };
+
+    const renderIgnored = (rows) => {
+      cntIgnored.textContent = rows.length;
+      if (!rows.length) {
+        listIgnored.innerHTML = '<div class="empty">No ignored icons yet...</div>';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      rows.forEach((r, i) => {
+        const d = document.createElement("div");
+        d.className = "row";
+        const idx = document.createElement("span"); idx.className = "idx";
+        idx.textContent = (i + 1); d.appendChild(idx);
+        const meta = document.createElement("span"); meta.className = "meta";
+        meta.innerHTML = `<b>${r.k}</b> n=${r.n}`;
+        d.appendChild(meta);
+        const co = document.createElement("span"); co.className = "coords";
+        co.textContent = `${r.sw}x${r.sh}`;
+        d.appendChild(co);
+        d.addEventListener("click", () => openIgnoredPreview(i, r));
+        frag.appendChild(d);
+      });
+      const st = listIgnored.scrollTop;
+      listIgnored.innerHTML = "";
+      listIgnored.appendChild(frag);
+      listIgnored.scrollTop = st;
+    };
+
+    const renderClassified = (rows) => {
+      cntClassified.textContent = rows.length;
+      if (!rows.length) {
+        listClassified.innerHTML = '<div class="empty">No classified icons yet...</div>';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      rows.forEach((r, i) => {
+        const d = document.createElement("div");
+        d.className = "row";
+        const idx = document.createElement("span"); idx.className = "idx";
+        idx.textContent = (i + 1); d.appendChild(idx);
+        const meta = document.createElement("span"); meta.className = "meta";
+        // "live" flag distinguishes rows that have been rendered this session
+        // (mesh data available for preview) from rows loaded only from the
+        // catalog (name only; preview will be empty until icon renders).
+        const liveTag = r.live ? "" : ' <span style="color:var(--text-faint)">(not seen)</span>';
+        meta.innerHTML = `<b>${r.name}</b> <span style="color:var(--text-faint)">${r.k} n=${r.n}</span>${liveTag}`;
+        d.appendChild(meta);
+        const co = document.createElement("span"); co.className = "coords";
+        co.textContent = r.sw > 0 ? `${r.sw}x${r.sh}` : "";
+        d.appendChild(co);
+        d.addEventListener("click", () => openClassifiedPreview(i, r));
+        frag.appendChild(d);
+      });
+      const st = listClassified.scrollTop;
+      listClassified.innerHTML = "";
+      listClassified.appendChild(frag);
+      listClassified.scrollTop = st;
+    };
+
+    const openClassifiedPreview = (idx, r) => {
+      drawScatter([], 5);
+      modalTitle.textContent = `${r.name}`;
+      modalInfo.textContent = `${r.k}  n=${r.n}  ${r.sw}x${r.sh}  loading full mesh...`;
+      modal.classList.add("on");
+      pendingIconPreviewIdx = idx + 1;
+      fetch("https://bolt-api/send-message",
+        { method: "POST", body: `preview_classified:${idx + 1}` }).catch(() => {});
+    };
+
+    const openIgnoredPreview = (idx, r) => {
+      drawScatter(r.v || [], 5);
+      modalTitle.textContent = `Ignored #${idx + 1}`;
+      modalInfo.textContent = `${r.k}  n=${r.n}  ${r.sw}x${r.sh}  loading full mesh...`;
+      modal.classList.add("on");
+      pendingIconPreviewIdx = idx + 1;
+      fetch("https://bolt-api/send-message",
+        { method: "POST", body: `preview_ignored:${idx + 1}` }).catch(() => {});
+    };
+
+    const openIconPreview = (idx, r) => {
+      // Fill instantly with the 5 sample verts, then fetch the full mesh.
+      drawScatter(r.v || [], 5);
+      modalTitle.textContent = `Icon #${idx + 1}`;
+      modalInfo.textContent = `${r.k}  n=${r.n}  ${r.sw}x${r.sh}  loading full mesh...`;
+      modal.classList.add("on");
+      pendingIconPreviewIdx = idx + 1;
+      fetch("https://bolt-api/send-message",
+        { method: "POST", body: `preview_icon:${idx + 1}` }).catch(() => {});
+    };
+    let pendingIconPreviewIdx = null;
+    const applyFullIconPreview = (idx, header, blob) => {
+      // header = "<sw>|<sh>|<mvp16>", blob = pts CSV
+      const [swS, shS, mvpS] = header.split("|");
+      const sw = +swS, sh = +shS;
+      const mvp = mvpS ? mvpS.split(",").map(Number) : null;
+      const parts = blob ? blob.split(";") : [];
+      const verts = [];
+      for (const p of parts) {
+        if (!p) continue;
+        const f = p.split(",");
+        if (f.length < 6) continue;
+        verts.push({ x: +f[0], y: +f[1], z: +f[2], r: +f[3], g: +f[4], b: +f[5] });
+      }
+      if (!verts.length) { modalInfo.textContent = "no pts"; return; }
+      // Try MVP projection first - that's what the icon actually looks like.
+      // Fallback: XZ scatter of the mesh in local model space.
+      if (mvp && mvp.length === 16 && sw > 0 && sh > 0) {
+        drawProjected(verts, mvp, sw, sh);
+        modalInfo.textContent = `${verts.length} pts (MVP)`;
+      } else {
+        const ptSize = verts.length > 2000 ? 1 : (verts.length > 500 ? 1.5 : 3);
+        drawScatter(verts, ptSize);
+        modalInfo.textContent = `${verts.length} pts (mesh)`;
+      }
+    };
+
+    // Full triangle-list rasterization of the mesh through its MVP. Every 3
+    // consecutive verts form one triangle; each pixel gets its color from
+    // barycentric interpolation of the 3 verts' RGB. Same math as the Lua
+    // rasterizer used for auto-classification, so what you see in the modal
+    // is byte-identical to what the auto-classifier is comparing.
+    const drawProjected = (verts, m, sw, sh) => {
+      const w = previewCanvas.width, h = previewCanvas.height;
+      const ctx = previewCanvas.getContext("2d");
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#1e1a12"; ctx.fillRect(0, 0, w, h);
+      const scale = Math.min(w / sw, h / sh);
+      const outW = Math.floor(sw * scale), outH = Math.floor(sh * scale);
+      const ox = Math.floor((w - outW) / 2), oy = Math.floor((h - outH) / 2);
+      ctx.strokeStyle = "rgba(150,120,80,0.45)"; ctx.strokeRect(ox, oy, outW, outH);
+      // Project all verts.
+      const P = new Array(verts.length);
+      for (let i = 0; i < verts.length; i++) {
+        const v = verts[i];
+        const cx = m[0]*v.x + m[4]*v.y + m[8]*v.z  + m[12];
+        const cy = m[1]*v.x + m[5]*v.y + m[9]*v.z  + m[13];
+        const cz = m[2]*v.x + m[6]*v.y + m[10]*v.z + m[14];
+        const cw = m[3]*v.x + m[7]*v.y + m[11]*v.z + m[15];
+        if (cw > 0) {
+          P[i] = {
+            px: ox + (cx / cw *  0.5 + 0.5) * outW,
+            py: oy + (cy / cw * -0.5 + 0.5) * outH,
+            z:  cz / cw,
+            r: v.r, g: v.g, b: v.b,
+          };
+        }
+      }
+      // Rasterize each triangle.
+      const img = ctx.getImageData(ox, oy, outW, outH);
+      const px = img.data;
+      const zbuf = new Float32Array(outW * outH); zbuf.fill(Infinity);
+      const edge = (ax, ay, bx, by, cx, cy) =>
+        (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      for (let t = 0; t + 2 < P.length; t += 3) {
+        const v0 = P[t], v1 = P[t+1], v2 = P[t+2];
+        if (!v0 || !v1 || !v2) continue;
+        const area = edge(v0.px, v0.py, v1.px, v1.py, v2.px, v2.py);
+        if (area === 0) continue;
+        const minx = Math.max(ox, Math.floor(Math.min(v0.px, v1.px, v2.px)));
+        const maxx = Math.min(ox + outW - 1, Math.floor(Math.max(v0.px, v1.px, v2.px)));
+        const miny = Math.max(oy, Math.floor(Math.min(v0.py, v1.py, v2.py)));
+        const maxy = Math.min(oy + outH - 1, Math.floor(Math.max(v0.py, v1.py, v2.py)));
+        for (let y = miny; y <= maxy; y++) {
+          for (let x = minx; x <= maxx; x++) {
+            const fx = x + 0.5, fy = y + 0.5;
+            const w0 = edge(v1.px, v1.py, v2.px, v2.py, fx, fy) / area;
+            const w1 = edge(v2.px, v2.py, v0.px, v0.py, fx, fy) / area;
+            const w2 = edge(v0.px, v0.py, v1.px, v1.py, fx, fy) / area;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            const z = w0*v0.z + w1*v1.z + w2*v2.z;
+            const lx = x - ox, ly = y - oy;
+            const off = ly * outW + lx;
+            if (z >= zbuf[off]) continue;
+            zbuf[off] = z;
+            const po = off * 4;
+            px[po]     = Math.max(0, Math.min(255, Math.floor(w0*v0.r + w1*v1.r + w2*v2.r)));
+            px[po + 1] = Math.max(0, Math.min(255, Math.floor(w0*v0.g + w1*v1.g + w2*v2.g)));
+            px[po + 2] = Math.max(0, Math.min(255, Math.floor(w0*v0.b + w1*v1.b + w2*v2.b)));
+            px[po + 3] = 255;
+          }
+        }
+      }
+      ctx.putImageData(img, ox, oy);
+    };
+
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      let c = e.data.content;
+      if (c instanceof Uint8Array) c = new TextDecoder().decode(c);
+      else if (c instanceof ArrayBuffer) c = new TextDecoder().decode(new Uint8Array(c));
+      if (typeof c !== "string") return;
+      if (c === "visible:hide") { document.body.style.visibility = "hidden"; document.body.style.pointerEvents = "none"; return; }
+      if (c === "visible:show") { document.body.style.visibility = ""; document.body.style.pointerEvents = ""; return; }
+      if (c.startsWith("icons:")) {
+        try { renderIcons(JSON.parse(c.slice(6))); } catch (_) {}
+        return;
+      }
+      if (c.startsWith("iignored:")) {
+        try { renderIgnored(JSON.parse(c.slice(9))); } catch (_) {}
+        return;
+      }
+      if (c.startsWith("iclassified:")) {
+        try { renderClassified(JSON.parse(c.slice(12))); } catch (_) {}
+        return;
+      }
+      if (c.startsWith("unassigned:")) {
+        unassignedNames = c.slice(11).split(",").filter(Boolean);
+        return;
+      }
+      // ipts:<i>|<sw>|<sh>|<mvp16>:<blob> - full-mesh preview reply for an icon modal.
+      if (c.startsWith("ipts:")) {
+        const rest = c.slice(5);
+        const sep = rest.indexOf(":");
+        if (sep < 0) return;
+        const left = rest.slice(0, sep);
+        const blob = rest.slice(sep + 1);
+        const pipeIdx = left.indexOf("|");
+        if (pipeIdx < 0) return;
+        const idx = parseInt(left.slice(0, pipeIdx), 10);
+        const header = left.slice(pipeIdx + 1);
+        if (pendingIconPreviewIdx === idx) applyFullIconPreview(idx, header, blob);
+        return;
+      }
+    });
+  </script>
+</body></html>

@@ -1,0 +1,11 @@
+# dino body-colour references (median vertex RGB per tier), from
+# labelled review captures. Regenerate with tools/dino-colors.py.
+# tier|R,G,B
+1|133,136,104
+2|87,91,69
+3|75,91,69
+4|92,104,53
+7|58,48,37
+8|56,60,55
+9|74,48,47
+10|47,41,54

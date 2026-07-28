@@ -1,0 +1,463 @@
+<!doctype html>
+<html><head><style>
+  /* RuneScape brown palette. Opaque (no transparency). */
+  :root {
+    --bg: #3e352a;
+    --bg-alt: #4b402f;
+    --bg-hover: #5a4d38;
+    --border: #6b5b3f;
+    --border-strong: #967a4a;
+    --text: #f0d493;
+    --text-dim: #b8a17a;
+    --text-faint: #8a7454;
+    --accent: #ffcf6b;
+    --on: #7abd50;
+    --off: #5a4a35;
+    --danger: #d67c4c;
+  }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; height: 100%; user-select: none; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+
+  .card {
+    width: 100%; height: 100%; box-sizing: border-box;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    display: flex; flex-direction: column;
+  }
+
+  .header {
+    padding: 8px 10px;
+    cursor: move;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #4b402f 0%, #3e352a 100%);
+    display: flex; align-items: center; gap: 10px;
+    flex: none;
+  }
+  .header .title {
+    font-size: 14px; font-weight: 700; color: var(--accent);
+    letter-spacing: 0.5px; text-transform: uppercase;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+  }
+  .header .sub { color: var(--text-dim); font-size: 12px; }
+  .header .spacer { flex: 1; }
+  .header .x {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-alt);
+    color: var(--text);
+    cursor: pointer;
+    border-radius: 3px;
+    position: relative;
+  }
+  .header .x:hover { background: var(--danger); color: var(--bg); }
+  .header .x::before, .header .x::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 12px; height: 2px; background: currentColor; border-radius: 1px;
+  }
+  .header .x::before { transform: translate(-50%, -50%) rotate(45deg); }
+  .header .x::after  { transform: translate(-50%, -50%) rotate(-45deg); }
+
+  .body { flex: 1; overflow-y: auto; padding: 8px; }
+  .body::-webkit-scrollbar { width: 8px; }
+  .body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .body::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+  .plugin {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .plugin .plugin-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0.05) 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .plugin.disabled .plugin-head { border-bottom: none; }
+  .plugin h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.3px;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.35);
+  }
+  .plugin-body { padding: 4px 10px 8px; }
+  .plugin.disabled .plugin-body { display: none; }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 0 5px 12px;
+    font-size: 13px;
+    color: var(--text-dim);
+    border-top: 1px solid var(--border);
+  }
+  .row:first-of-type { border-top: none; padding-top: 4px; }
+  .row .label { color: var(--text); font-weight: 500; }
+  /* Non-header switches sit slightly inset from the right so they don't line
+     up with the header's Enable toggle. */
+  .row .switch, .row .input { margin-right: 12px; }
+  .row.dev .label::after {
+    content: "DEV";
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 4px;
+    background: var(--border);
+    color: var(--text-dim);
+    border-radius: 2px;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+  }
+
+  /* Compact toggle switch. */
+  .switch {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    flex: none;
+    border-radius: 10px;
+    background: var(--off);
+    cursor: pointer;
+    border: 1px solid var(--border-strong);
+    transition: background 0.15s ease;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 1px; left: 1px;
+    width: 16px; height: 16px;
+    background: #e6cc8a;
+    border: 1px solid rgba(0, 0, 0, 0.35);
+    border-radius: 50%;
+    transition: transform 0.15s ease;
+  }
+  .switch.on { background: var(--on); }
+  .switch.on::after { transform: translateX(15px); background: #e6f0c8; }
+
+  .input {
+    background: var(--off);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    width: 80px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: inherit;
+  }
+  .input:focus { outline: 1px solid var(--accent); }
+  /* Free-text settings (party codes, URLs): wider, left-aligned. */
+  .input.text { width: 140px; text-align: left; font-variant-numeric: normal; }
+
+  /* Collapsible setting group (sub-area) inside a plugin card. */
+  .row.group-head { cursor: pointer; }
+  .row.group-head .label { color: var(--accent); }
+  .row.group-head:hover { background: rgba(255, 255, 255, 0.04); }
+  .expander {
+    width: 18px; height: 18px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border-strong); border-radius: 3px;
+    background: var(--bg-alt);
+    color: var(--accent);
+    font-weight: 700; font-size: 13px; line-height: 1;
+    margin-right: 12px;
+  }
+  .group-body { margin-left: 10px; border-left: 1px solid var(--border); padding-left: 2px; }
+
+  .stepper { display: inline-flex; align-items: center; gap: 4px; }
+  .stepper .val {
+    min-width: 46px;
+    text-align: center;
+    color: var(--text);
+    font-weight: 700;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 6px;
+    background: var(--off);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+  }
+  .stepper button {
+    width: 22px; height: 22px;
+    background: var(--bg-alt);
+    color: var(--accent);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    padding: 0;
+  }
+  .stepper button:hover { background: var(--bg-hover); color: var(--text); }
+  .stepper button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .empty { color: var(--text-faint); font-size: 13px; text-align: center; padding: 20px; }
+</style></head><body>
+  <div class="card">
+    <div class="header" id="header">
+      <span class="title">DG Map Tracker</span>
+      <span class="sub" id="sub"></span>
+      <span class="spacer"></span>
+      <span class="x" id="close" title="Close"></span>
+    </div>
+    <div class="body" id="body">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+  <script>
+    const header = document.getElementById("header");
+    const body = document.getElementById("body");
+    const sub = document.getElementById("sub");
+    const closeBtn = document.getElementById("close");
+
+    const send = (b) => fetch("https://bolt-api/send-message", { method: "POST", body: b }).catch(() => {});
+
+    // Drag from the header (except over the close button).
+    header.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest("#close")) return;
+      fetch("https://bolt-api/start-reposition?h=0&v=0").catch(() => {});
+    });
+
+    closeBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+    closeBtn.addEventListener("click", () => send("close"));
+
+    let showDev = false;
+    // Collapse state per "<uuid>:<group>" -- lives at script scope so it
+    // survives the full DOM rebuild every state push triggers.
+    const groupCollapsed = {};
+
+    const render = (state) => {
+      showDev = !!state.showDevTools;
+      body.innerHTML = "";
+      if (!state.plugins || state.plugins.length === 0) {
+        body.innerHTML = '<div class="empty">No plugins registered.</div>';
+        return;
+      }
+
+      state.plugins.forEach((p) => {
+        // Lift the "enabled" setting into a header row with its own toggle.
+        // Everything else lives in the body; body collapses when disabled.
+        const enabledSetting = p.settings.find((s) => s.key === "enabled");
+        const restSettings = p.settings.filter((s) => s.key !== "enabled");
+        const isEnabled = enabledSetting ? !!enabledSetting.value : true;
+
+        const div = document.createElement("div");
+        div.className = "plugin" + (isEnabled ? "" : " disabled");
+
+        const head = document.createElement("div");
+        head.className = "plugin-head";
+        const h3 = document.createElement("h3");
+        h3.textContent = p.name;
+        head.appendChild(h3);
+        if (enabledSetting) {
+          const sw = document.createElement("div");
+          sw.className = "switch" + (isEnabled ? " on" : "");
+          sw.title = "Enabled";
+          sw.addEventListener("mousedown", (e) => e.stopPropagation());
+          sw.addEventListener("click", () => {
+            const nextVal = !sw.classList.contains("on");
+            sw.classList.toggle("on", nextVal);
+            send(`set:${p.uuid}:${enabledSetting.key}:${nextVal ? "true" : "false"}`);
+          });
+          head.appendChild(sw);
+        }
+        div.appendChild(head);
+
+        const body2 = document.createElement("div");
+        body2.className = "plugin-body";
+        const visibleSettings = restSettings.filter((s) => showDev || (s.category || "normal") === "normal");
+        if (visibleSettings.length === 0) {
+          const e = document.createElement("div");
+          e.className = "empty";
+          e.style.padding = "8px";
+          e.textContent = "no other settings";
+          body2.appendChild(e);
+        } else {
+          const buildRow = (s) => {
+            const row = document.createElement("div");
+            row.className = "row" + ((s.category === "dev") ? " dev" : "");
+            const label = document.createElement("span");
+            label.className = "label";
+            label.textContent = s.label;
+            row.appendChild(label);
+            if (s.type === "bool") {
+              const sw = document.createElement("div");
+              sw.className = "switch" + (s.value ? " on" : "");
+              sw.addEventListener("mousedown", (e) => e.stopPropagation());
+              sw.addEventListener("click", () => {
+                const nextVal = !sw.classList.contains("on");
+                sw.classList.toggle("on", nextVal);
+                send(`set:${p.uuid}:${s.key}:${nextVal ? "true" : "false"}`);
+              });
+              row.appendChild(sw);
+            } else if (s.type === "int") {
+              const inp = document.createElement("input");
+              inp.type = "number";
+              inp.className = "input";
+              inp.value = s.value;
+              inp.addEventListener("mousedown", (e) => e.stopPropagation());
+              inp.addEventListener("change", () => send(`set:${p.uuid}:${s.key}:${inp.value}`));
+              row.appendChild(inp);
+            } else if (s.type === "int_stepper") {
+              const wrap = document.createElement("span");
+              wrap.className = "stepper";
+              const minus = document.createElement("button");
+              minus.textContent = "-";
+              const val = document.createElement("span");
+              val.className = "val";
+              val.textContent = s.value;
+              const plus = document.createElement("button");
+              plus.textContent = "+";
+              const step = s.step || 1;
+              const min = (s.min !== undefined) ? s.min : Number.NEGATIVE_INFINITY;
+              const max = (s.max !== undefined) ? s.max :  Number.POSITIVE_INFINITY;
+              const clamp = (v) => Math.max(min, Math.min(max, v));
+              const emit = (nv) => {
+                val.textContent = nv;
+                minus.disabled = (nv - step) < min;
+                plus.disabled  = (nv + step) > max;
+                send(`set:${p.uuid}:${s.key}:${nv}`);
+              };
+              minus.disabled = ((s.value | 0) - step) < min;
+              plus.disabled  = ((s.value | 0) + step) > max;
+              minus.addEventListener("mousedown", (e) => e.stopPropagation());
+              plus.addEventListener("mousedown", (e) => e.stopPropagation());
+              minus.addEventListener("click", () => emit(clamp((parseInt(val.textContent, 10) || 0) - step)));
+              plus.addEventListener("click",  () => emit(clamp((parseInt(val.textContent, 10) || 0) + step)));
+              wrap.appendChild(minus);
+              wrap.appendChild(val);
+              wrap.appendChild(plus);
+              row.appendChild(wrap);
+            } else if (s.type === "party") {
+              // Party code: fixed DGPARTY1..DGPARTY9, stepped with +/-. The
+              // stored value is the full string; anything else (legacy custom
+              // code) displays as DGPARTY1 and normalises on first click.
+              const wrap = document.createElement("span");
+              wrap.className = "stepper";
+              const minus = document.createElement("button");
+              minus.textContent = "-";
+              const val = document.createElement("span");
+              val.className = "val";
+              const parsed = /^DGPARTY([1-9])$/.exec(String(s.value || ""));
+              let n = parsed ? parseInt(parsed[1], 10) : 1;
+              val.textContent = "DGPARTY" + n;
+              const plus = document.createElement("button");
+              plus.textContent = "+";
+              const sync = () => {
+                val.textContent = "DGPARTY" + n;
+                minus.disabled = n <= 1;
+                plus.disabled  = n >= 9;
+              };
+              sync();
+              minus.addEventListener("mousedown", (e) => e.stopPropagation());
+              plus.addEventListener("mousedown", (e) => e.stopPropagation());
+              minus.addEventListener("click", () => {
+                if (n > 1) { n -= 1; sync(); send(`set:${p.uuid}:${s.key}:DGPARTY${n}`); }
+              });
+              plus.addEventListener("click", () => {
+                if (n < 9) { n += 1; sync(); send(`set:${p.uuid}:${s.key}:DGPARTY${n}`); }
+              });
+              wrap.appendChild(minus);
+              wrap.appendChild(val);
+              wrap.appendChild(plus);
+              row.appendChild(wrap);
+            } else {
+              const inp = document.createElement("input");
+              inp.type = "text";
+              inp.className = "input" + (s.type === "text" ? " text" : "");
+              inp.value = s.value;
+              inp.addEventListener("mousedown", (e) => e.stopPropagation());
+              // Trim: a stray leading/trailing space in a party code hashes to
+              // a different room and fails silently.
+              inp.addEventListener("change", () => send(`set:${p.uuid}:${s.key}:${inp.value.trim()}`));
+              row.appendChild(inp);
+            }
+            return row;
+          };
+          const groups = {};
+          for (const s of visibleSettings) {
+            if (s.group) (groups[s.group] = groups[s.group] || []).push(s);
+            else body2.appendChild(buildRow(s));
+          }
+          // Collapsible sub-areas (e.g. "Panels"): a header row with a +/-
+          // expander. Collapse state lives in groupCollapsed so it survives
+          // the DOM rebuild every settings change triggers; default collapsed.
+          for (const gname of Object.keys(groups)) {
+            const gkey = p.uuid + ":" + gname;
+            if (!(gkey in groupCollapsed)) groupCollapsed[gkey] = true;
+            const head = document.createElement("div");
+            head.className = "row group-head";
+            const glabel = document.createElement("span");
+            glabel.className = "label";
+            glabel.textContent = gname.charAt(0).toUpperCase() + gname.slice(1);
+            head.appendChild(glabel);
+            const ex = document.createElement("span");
+            ex.className = "expander";
+            ex.textContent = groupCollapsed[gkey] ? "+" : "-";
+            head.appendChild(ex);
+            const gbody = document.createElement("div");
+            gbody.className = "group-body";
+            gbody.style.display = groupCollapsed[gkey] ? "none" : "";
+            for (const s of groups[gname]) gbody.appendChild(buildRow(s));
+            head.addEventListener("mousedown", (e) => e.stopPropagation());
+            head.addEventListener("click", () => {
+              groupCollapsed[gkey] = !groupCollapsed[gkey];
+              ex.textContent = groupCollapsed[gkey] ? "+" : "-";
+              gbody.style.display = groupCollapsed[gkey] ? "none" : "";
+            });
+            body2.appendChild(head);
+            body2.appendChild(gbody);
+          }
+        }
+        div.appendChild(body2);
+        body.appendChild(div);
+      });
+
+      // Global row for the Show Dev Tools toggle.
+      const global = document.createElement("div");
+      global.className = "plugin";
+      const h3 = document.createElement("h3");
+      h3.textContent = "General";
+      global.appendChild(h3);
+      const row = document.createElement("div");
+      row.className = "row";
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = "Show Dev Tools";
+      row.appendChild(label);
+      const sw = document.createElement("div");
+      sw.className = "switch" + (showDev ? " on" : "");
+      sw.addEventListener("mousedown", (e) => e.stopPropagation());
+      sw.addEventListener("click", () => send("toggle_dev_tools"));
+      row.appendChild(sw);
+      global.appendChild(row);
+      body.appendChild(global);
+    };
+
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      let c = e.data.content;
+      if (c instanceof Uint8Array) c = new TextDecoder().decode(c);
+      else if (c instanceof ArrayBuffer) c = new TextDecoder().decode(new Uint8Array(c));
+      if (typeof c !== "string") return;
+      if (c.startsWith("state:")) {
+        try { render(JSON.parse(c.slice(6))); }
+        catch (_) { body.innerHTML = '<div class="empty">Bad state payload.</div>'; }
+      }
+    });
+
+    send("refresh");
+  </script>
+</body></html>

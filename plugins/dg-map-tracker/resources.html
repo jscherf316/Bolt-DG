@@ -1,0 +1,618 @@
+<!doctype html>
+<html><head><style>
+  :root {
+    --bg: #3e352a;
+    --bg-alt: #4b402f;
+    --bg-hover: #5a4d38;
+    --border: #6b5b3f;
+    --border-strong: #967a4a;
+    --text: #f0d493;
+    --text-dim: #b8a17a;
+    --text-faint: #8a7454;
+    --accent: #ffcf6b;
+  }
+  html, body { margin: 0; padding: 0; background: transparent; color: var(--text);
+    font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; height: 100%; user-select: none; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+
+  .card {
+    width: 100%; height: 100%; box-sizing: border-box;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    display: flex; flex-direction: column;
+  }
+  .header {
+    padding: 8px 10px;
+    cursor: move;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #4b402f 0%, #3e352a 100%);
+    flex: none;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .title { font-size: 13px; font-weight: 700; color: var(--accent);
+    letter-spacing: 0.4px; text-transform: uppercase;
+    text-shadow: 1px 1px 0 rgba(0,0,0,0.45); }
+  .sub { color: var(--text-dim); font-size: 11px; }
+  .btn-ignore-all {
+    margin-left: auto;
+    cursor: pointer;
+    background: rgba(0,0,0,0.25);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font: 600 11px "Trebuchet MS", sans-serif;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .btn-ignore-all:hover { background: rgba(214,124,76,0.25); color: var(--accent); border-color: var(--border-strong); }
+  .btn-ignore-all:active { background: rgba(214,124,76,0.4); }
+
+  .tab {
+    cursor: pointer;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font: 600 11px "Trebuchet MS", sans-serif;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .tab:hover { color: var(--accent); }
+  .tab.active { background: rgba(88,166,255,0.15); color: var(--accent); border-color: rgba(88,166,255,0.35); }
+  .tab .cnt { color: var(--text-faint); margin-left: 4px; font-weight: 700; }
+  .tab.active .cnt { color: var(--accent); }
+
+  .row.match { grid-template-columns: 1fr auto auto; }
+  .row.match .name { color: var(--text); font-weight: 600; }
+  .row.match .name .t { color: var(--text-dim); font-weight: 400; margin-left: 4px; font-size: 10px; }
+  .row.match .score { color: var(--text-dim); font-family: "SF Mono", Consolas, monospace; font-size: 11px; }
+  .row.match .score.exact { color: var(--accent); }
+  .row.match .score.soft  { color: #d67c4c; }
+  .row.match .coords { color: var(--text-faint); font-family: "SF Mono", Consolas, monospace; }
+
+  .list {
+    flex: 1; overflow-y: auto; padding: 6px 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .list::-webkit-scrollbar { width: 8px; }
+  .list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .row:last-child { border-bottom: none; }
+  .row .idx { font-weight: 700; color: var(--accent); text-align: right; }
+  .row .meta { color: var(--text-dim); }
+  .row .meta b { color: var(--text); font-weight: 700; }
+  .row .coords { color: var(--text-faint); font-family: "SF Mono", Consolas, monospace; }
+  .empty { color: var(--text-faint); font-size: 12px; text-align: center; padding: 30px; }
+
+  .row { cursor: pointer; }
+  .row:hover { background: var(--bg-hover); }
+
+  .modal-back {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: none; align-items: center; justify-content: center;
+    z-index: 10;
+  }
+  .modal-back.on { display: flex; }
+  .modal {
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 14px;
+    min-width: 220px;
+    max-width: 320px;
+    display: flex; flex-direction: column; gap: 10px;
+    align-items: stretch;
+  }
+  .modal h4 { margin: 0; color: var(--accent); font-size: 13px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .modal canvas { background: #1e1a12; border: 1px solid var(--border); border-radius: 4px; display: block; }
+  .modal .info { color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .modal .ctl { display: flex; gap: 6px; align-items: center; }
+  .modal .ctl button {
+    background: #2a2418; color: var(--text-dim); border: 1px solid var(--border);
+    border-radius: 3px; font-size: 10px; padding: 2px 8px; cursor: pointer;
+  }
+  .modal .ctl button.on { color: var(--accent); border-color: var(--accent); }
+  .modal .ctl button:disabled { opacity: 0.4; cursor: default; }
+  .modal .ctl .hint { color: var(--text-dim); font-size: 10px; margin-left: auto; }
+  .modal canvas { cursor: grab; }
+  .modal canvas.dragging { cursor: grabbing; }
+  .modal .mhead { display: flex; justify-content: space-between; align-items: center; }
+  .modal .mhead button {
+    background: #2a2418; color: var(--text-dim); border: 1px solid var(--border);
+    border-radius: 3px; font-size: 11px; padding: 1px 8px; cursor: pointer; line-height: 1.4;
+  }
+  #freeze.on { color: #7fd3ff; border-color: #7fd3ff; }
+  #pv-review.marked { color: #8f8; border-color: #8f8; }
+</style></head><body>
+  <div class="card">
+    <div class="header" id="header">
+      <button class="tab active" data-tab="queue" title="Queue">Q<span class="cnt" id="cnt-queue">0</span></button>
+      <button class="tab" data-tab="matches" title="Matches">M<span class="cnt" id="cnt-matches">0</span></button>
+      <button class="btn-ignore-all" id="freeze" title="Freeze the queue: ordering, indexes and resource_queue.txt stop updating so entries can be referenced by number">F</button>
+    </div>
+    <div id="vrange" style="display:flex;align-items:center;gap:6px;padding:4px 8px;font-size:10px;color:#9aa;">
+      <span>verts</span>
+      <input type="range" id="vmin" min="0" max="5000" step="50" value="1500" style="flex:1;min-width:0;">
+      <input type="range" id="vmax" min="0" max="5000" step="50" value="5000" style="flex:1;min-width:0;">
+      <span id="vrange-val" style="min-width:78px;text-align:right;">1500 - 5000</span>
+      <button id="show-large" title="SHOW LARGE: lift the >5000-vert and >4-tile-bbox filters so big meshes can queue (noisy)" style="font-size:9px;padding:2px 5px;">LARGE</button>
+    </div>
+    <div class="list" id="list-queue"><div class="empty">Walk near a resource...</div></div>
+    <div class="list" id="list-matches" style="display:none;"><div class="empty">No classified matches yet...</div></div>
+  </div>
+
+  <div class="modal-back" id="modal">
+    <div class="modal">
+      <div class="mhead">
+        <h4 id="modal-title">Resource</h4>
+        <button id="pv-close" title="Close preview">close</button>
+      </div>
+      <canvas id="preview" width="220" height="220"></canvas>
+      <div class="ctl">
+        <button id="pv-review" title="Save this entry's full mesh data to resource_review.txt for later review">mark review</button>
+      </div>
+      <div class="info" id="modal-info"></div>
+    </div>
+  </div>
+
+  <script>
+    const header = document.getElementById("header");
+    const listQueue = document.getElementById("list-queue");
+    const listMatches = document.getElementById("list-matches");
+    const cntQueue = document.getElementById("cnt-queue");
+    const cntMatches = document.getElementById("cnt-matches");
+    header.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      // Let button / tab clicks through - only start reposition on the header bg.
+      if (e.target.closest(".btn-ignore-all") || e.target.closest(".tab")
+          || e.target.closest("#freeze")) return;
+      fetch("https://bolt-api/start-reposition?h=0&v=0").catch(() => {});
+    });
+    // ("Ignore all" button removed 2026-07-19: it sat where the preview's
+    // close control lands, and misclicks mass-ignored the queue. The Lua
+    // ignore_all handler remains for tooling.)
+
+    // Queue freeze: Lua stops re-sorting last_dumped_list, re-dumping the
+    // file and re-pushing the panel, so on-screen indexes, preview fetches
+    // and resource_queue.txt all reference the same frozen ordering.
+    let frozen = false;
+    const btnFreeze = document.getElementById("freeze");
+    btnFreeze.addEventListener("click", (e) => {
+      e.stopPropagation();
+      frozen = !frozen;
+      btnFreeze.classList.toggle("on", frozen);
+      btnFreeze.textContent = frozen ? "Frozen" : "Freeze";
+      fetch("https://bolt-api/send-message",
+        { method: "POST", body: frozen ? "freeze_queue" : "unfreeze_queue" }).catch(() => {});
+    });
+
+    // Tab switching: Queue - Matches.
+    let activeTab = "queue";
+    const listByTab = { queue: listQueue, matches: listMatches };
+    header.querySelectorAll(".tab").forEach((t) => {
+      t.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const tab = t.dataset.tab;
+        if (tab === activeTab) return;
+        activeTab = tab;
+        header.querySelectorAll(".tab").forEach((x) =>
+          x.classList.toggle("active", x.dataset.tab === tab));
+        for (const k of Object.keys(listByTab)) {
+          listByTab[k].style.display = (k === tab) ? "" : "none";
+        }
+      });
+    });
+
+    const modal = document.getElementById("modal");
+    const previewCanvas = document.getElementById("preview");
+    const modalTitle = document.getElementById("modal-title");
+    const modalInfo = document.getElementById("modal-info");
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.remove("on"); });
+
+    // Renders a top-down XZ scatter of every captured vertex (position + color).
+    // `verts` is an array of {x, y, z, r, g, b}. Called both with the initial
+    // 5 samples (immediate) and with the full point cloud when the modal-open
+    // preview fetch returns.
+    const drawScatter = (verts, ptSize) => {
+      const w = previewCanvas.width, h = previewCanvas.height;
+      const ctx = previewCanvas.getContext("2d");
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#1e1a12"; ctx.fillRect(0, 0, w, h);
+      if (!verts.length) return;
+      let x0 =  Infinity, x1 = -Infinity;
+      let z0 =  Infinity, z1 = -Infinity;
+      for (const v of verts) {
+        if (v.x < x0) x0 = v.x; if (v.x > x1) x1 = v.x;
+        if (v.z < z0) z0 = v.z; if (v.z > z1) z1 = v.z;
+      }
+      if (x0 === x1) { x0 -= 1; x1 += 1; }
+      if (z0 === z1) { z0 -= 1; z1 += 1; }
+      const pad = 12;
+      const sx = (x) => pad + ((x - x0) / (x1 - x0)) * (w - pad * 2);
+      const sz = (z) => pad + ((z - z0) / (z1 - z0)) * (h - pad * 2);
+      // Draw the point cloud. For a full-mesh preview we skip the outline &
+      // origin axes - they're only useful for the tiny 5-sample view.
+      const drawOutline = ptSize >= 4;
+      if (drawOutline) {
+        ctx.strokeStyle = "rgba(150,120,80,0.45)"; ctx.lineWidth = 1;
+        ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
+      }
+      if (ptSize <= 1.5) {
+        // Fast path for big point clouds: rectangles, no per-point stroke.
+        for (const v of verts) {
+          ctx.fillStyle = `rgb(${v.r},${v.g},${v.b})`;
+          ctx.fillRect(sx(v.x) - ptSize/2, sz(v.z) - ptSize/2, ptSize, ptSize);
+        }
+      } else {
+        for (const v of verts) {
+          ctx.fillStyle = `rgb(${v.r},${v.g},${v.b})`;
+          ctx.strokeStyle = "rgba(0,0,0,0.65)"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.arc(sx(v.x), sz(v.z), ptSize, 0, Math.PI * 2);
+          ctx.fill(); ctx.stroke();
+        }
+      }
+    };
+
+    let lastPreview = null;   // { kind: "queue"|"match", idx (1-based) }
+    const openPreview = (idx, r) => {
+      // Show the 5 sample verts immediately as a placeholder; the full cloud
+      // arrives asynchronously via a "pts:" message.
+      drawScatter(r.v || [], 5);
+      modalTitle.textContent = `#${idx + 1}`;
+      modalInfo.textContent = `n=${r.n}  tile=(${r.tx}, ${r.tz})  loading full mesh...`;
+      modal.classList.add("on");
+      pendingPreviewIdx = idx + 1;   // Lua is 1-based
+      lastPreview = { kind: "queue", idx: idx + 1 };
+      fetch("https://bolt-api/send-message",
+        { method: "POST", body: `preview:${idx + 1}` }).catch(() => {});
+    };
+    let pendingPreviewIdx = null;
+
+    // ---- Adjustable preview projection -----------------------------------
+    // The captured MVP shows the mesh exactly as the game camera saw it at
+    // capture time -- one fixed, often awkward angle. Since the payload is
+    // the full LOCAL-space point cloud, we can render from anywhere: an
+    // orbit camera (drag = rotate, wheel = zoom) built as an orthographic
+    // column-major MVP so the existing rasteriser is reused unchanged.
+    // Model-space y runs negative-up (RS convention), folded in as a flip.
+    const pv = {
+      mesh: null,               // { verts, mvp, sw, sh, label }
+      mode: "orbit",           // "orbit" | "game"
+      yaw: Math.PI / 4, pitch: 0.5, zoom: 1,
+    };
+    const PV_YAW0 = Math.PI / 4, PV_PITCH0 = 0.5;
+
+    const meshBounds = (verts) => {
+      let cx = 0, cy = 0, cz = 0;
+      for (const v of verts) { cx += v.x; cy += v.y; cz += v.z; }
+      const n = Math.max(1, verts.length);
+      cx /= n; cy /= n; cz /= n;
+      let r2 = 1;
+      for (const v of verts) {
+        const dx = v.x - cx, dy = v.y - cy, dz = v.z - cz;
+        const d = dx*dx + dy*dy + dz*dz;
+        if (d > r2) r2 = d;
+      }
+      return { cx, cy, cz, radius: Math.sqrt(r2) };
+    };
+
+    const orbitMatrix = (b) => {
+      const cy = Math.cos(pv.yaw), sy = Math.sin(pv.yaw);
+      const cp = Math.cos(pv.pitch), sp = Math.sin(pv.pitch);
+      // R = Rx(pitch) * Ry(yaw). Model y is POSITIVE-up here (confirmed
+      // in-game 2026-07-18: the negated-y guess rendered meshes inverted).
+      const A = [
+        [cy,        0,   sy      ],
+        [sp * sy,   cp,  -sp * cy],
+        [-cp * sy,  sp,  cp * cy ],
+      ];
+      const s = 1 / (b.radius * 1.1 / pv.zoom);
+      const d = s;   // depth scale: any monotonic factor works for the zbuf
+      const rowScale = [s, s, -d];   // negate depth so nearer = smaller z
+      const m = new Array(16).fill(0);
+      for (let r = 0; r < 3; r++) {
+        m[0 + r] = rowScale[r] * A[r][0];
+        m[4 + r] = rowScale[r] * A[r][1];
+        m[8 + r] = rowScale[r] * A[r][2];
+        m[12 + r] = -rowScale[r] * (A[r][0]*b.cx + A[r][1]*b.cy + A[r][2]*b.cz);
+      }
+      m[15] = 1;
+      return m;
+    };
+
+    const renderPreview = () => {
+      const ms = pv.mesh;
+      if (!ms) return;
+      const w = previewCanvas.width, h = previewCanvas.height;
+      drawProjected(ms.verts, orbitMatrix(ms.bounds), w, h);   // always orbit
+      modalInfo.textContent = `${ms.label}  (${ms.verts.length} pts)`;
+    };
+
+    const setPreviewMesh = (verts, mvp, sw, sh, label) => {
+      pv.mesh = { verts, mvp, sw, sh, label, bounds: meshBounds(verts) };
+      renderPreview();
+    };
+
+    document.getElementById("pv-close").addEventListener("click",
+      () => modal.classList.remove("on"));
+    const btnReview = document.getElementById("pv-review");
+    btnReview.addEventListener("click", () => {
+      if (!lastPreview) return;
+      const body = lastPreview.kind === "match"
+        ? `review_match:${lastPreview.idx}` : `review_queue:${lastPreview.idx}`;
+      fetch("https://bolt-api/send-message", { method: "POST", body }).catch(() => {});
+      btnReview.classList.add("marked");
+      btnReview.textContent = "marked";
+      setTimeout(() => {
+        btnReview.classList.remove("marked");
+        btnReview.textContent = "mark review";
+      }, 1200);
+    });
+    // Vertex-range slider: bound the unknown queue's admitted vertexcount so
+    // smaller meshes (puzzle props etc.) can be surfaced. Sends "vrange:min,max".
+    const vmin = document.getElementById("vmin");
+    const vmax = document.getElementById("vmax");
+    const vval = document.getElementById("vrange-val");
+    const sendVRange = () => {
+      let lo = +vmin.value, hi = +vmax.value;
+      if (lo > hi) { const t = lo; lo = hi; hi = t; }   // keep min <= max
+      vval.textContent = `${lo} - ${hi}`;
+      fetch("https://bolt-api/send-message", { method: "POST", body: `vrange:${lo},${hi}` }).catch(() => {});
+    };
+    vmin.addEventListener("input", sendVRange);
+    vmax.addEventListener("input", sendVRange);
+    // SHOW LARGE toggle: lifts the >5000-vert / bbox / upper-bound rejects.
+    const btnLarge = document.getElementById("show-large");
+    let showLarge = false;
+    btnLarge.addEventListener("click", () => {
+      showLarge = !showLarge;
+      btnLarge.style.color = showLarge ? "#f88" : "";
+      btnLarge.style.borderColor = showLarge ? "#f88" : "";
+      fetch("https://bolt-api/send-message", { method: "POST", body: `show_large:${showLarge ? 1 : 0}` }).catch(() => {});
+    });
+    let pvDrag = null;
+    previewCanvas.addEventListener("mousedown", (e) => {
+      pvDrag = { x: e.clientX, y: e.clientY };
+      previewCanvas.classList.add("dragging");
+      e.preventDefault();
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!pvDrag) return;
+      pv.yaw += (e.clientX - pvDrag.x) * 0.012;
+      pv.pitch += (e.clientY - pvDrag.y) * 0.012;
+      pv.pitch = Math.max(-1.55, Math.min(1.55, pv.pitch));
+      pvDrag = { x: e.clientX, y: e.clientY };
+      renderPreview();
+    });
+    window.addEventListener("mouseup", () => {
+      pvDrag = null;
+      previewCanvas.classList.remove("dragging");
+    });
+    previewCanvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      pv.zoom *= (e.deltaY < 0 ? 1.12 : 1 / 1.12);
+      pv.zoom = Math.max(0.2, Math.min(8, pv.zoom));
+      renderPreview();
+    }, { passive: false });
+
+    const parseMeshBlob = (header, blob) => {
+      // header = "<sw>|<sh>|<mvp16>", blob = pts CSV.
+      const [swS, shS, mvpS] = header.split("|");
+      const verts = [];
+      for (const p of (blob ? blob.split(";") : [])) {
+        if (!p) continue;
+        const f = p.split(",");
+        if (f.length < 6) continue;
+        verts.push({ x: +f[0], y: +f[1], z: +f[2], r: +f[3], g: +f[4], b: +f[5] });
+      }
+      return { sw: +swS, sh: +shS, mvp: mvpS ? mvpS.split(",").map(Number) : null, verts };
+    };
+
+    const applyFullPreview = (idx, header, blob) => {
+      const { sw, sh, mvp, verts } = parseMeshBlob(header, blob);
+      const r = cachedRows[idx - 1] || {};
+      setPreviewMesh(verts, mvp, sw, sh, `n=${r.n}  tile=(${r.tx}, ${r.tz})`);
+    };
+
+    // Full triangle-list rasterisation via MVP (mirrors the icons.html scorer).
+    const drawProjected = (verts, m, sw, sh) => {
+      const w = previewCanvas.width, h = previewCanvas.height;
+      const ctx = previewCanvas.getContext("2d");
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#1e1a12"; ctx.fillRect(0, 0, w, h);
+      const scale = Math.min(w / sw, h / sh);
+      const outW = Math.floor(sw * scale), outH = Math.floor(sh * scale);
+      const ox = Math.floor((w - outW) / 2), oy = Math.floor((h - outH) / 2);
+      const P = new Array(verts.length);
+      for (let i = 0; i < verts.length; i++) {
+        const v = verts[i];
+        const cx = m[0]*v.x + m[4]*v.y + m[8]*v.z  + m[12];
+        const cy = m[1]*v.x + m[5]*v.y + m[9]*v.z  + m[13];
+        const cz = m[2]*v.x + m[6]*v.y + m[10]*v.z + m[14];
+        const cw = m[3]*v.x + m[7]*v.y + m[11]*v.z + m[15];
+        if (cw > 0) {
+          P[i] = {
+            px: ox + (cx / cw *  0.5 + 0.5) * outW,
+            py: oy + (cy / cw * -0.5 + 0.5) * outH,
+            z:  cz / cw,
+            r: v.r, g: v.g, b: v.b,
+          };
+        }
+      }
+      const img = ctx.getImageData(ox, oy, outW, outH);
+      const px = img.data;
+      const zbuf = new Float32Array(outW * outH); zbuf.fill(Infinity);
+      const edge = (ax, ay, bx, by, cx, cy) =>
+        (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      for (let t = 0; t + 2 < P.length; t += 3) {
+        const v0 = P[t], v1 = P[t+1], v2 = P[t+2];
+        if (!v0 || !v1 || !v2) continue;
+        const area = edge(v0.px, v0.py, v1.px, v1.py, v2.px, v2.py);
+        if (area === 0) continue;
+        const minx = Math.max(ox, Math.floor(Math.min(v0.px, v1.px, v2.px)));
+        const maxx = Math.min(ox + outW - 1, Math.floor(Math.max(v0.px, v1.px, v2.px)));
+        const miny = Math.max(oy, Math.floor(Math.min(v0.py, v1.py, v2.py)));
+        const maxy = Math.min(oy + outH - 1, Math.floor(Math.max(v0.py, v1.py, v2.py)));
+        for (let y = miny; y <= maxy; y++) {
+          for (let x = minx; x <= maxx; x++) {
+            const fx = x + 0.5, fy = y + 0.5;
+            const w0 = edge(v1.px, v1.py, v2.px, v2.py, fx, fy) / area;
+            const w1 = edge(v2.px, v2.py, v0.px, v0.py, fx, fy) / area;
+            const w2 = edge(v0.px, v0.py, v1.px, v1.py, fx, fy) / area;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            const z = w0*v0.z + w1*v1.z + w2*v2.z;
+            const off = (y - oy) * outW + (x - ox);
+            if (z >= zbuf[off]) continue;
+            zbuf[off] = z;
+            const po = off * 4;
+            px[po]     = Math.max(0, Math.min(255, Math.floor(w0*v0.r + w1*v1.r + w2*v2.r)));
+            px[po + 1] = Math.max(0, Math.min(255, Math.floor(w0*v0.g + w1*v1.g + w2*v2.g)));
+            px[po + 2] = Math.max(0, Math.min(255, Math.floor(w0*v0.b + w1*v1.b + w2*v2.b)));
+            px[po + 3] = 255;
+          }
+        }
+      }
+      ctx.putImageData(img, ox, oy);
+    };
+
+    let cachedRows = [];
+    const render = (rows) => {
+      cachedRows = rows;
+      cntQueue.textContent = rows.length;
+      if (!rows.length) {
+        listQueue.innerHTML = '<div class="empty">Walk near a resource...</div>';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      rows.forEach((r, i) => {
+        const d = document.createElement("div");
+        d.className = "row";
+        const idx = document.createElement("span"); idx.className = "idx"; idx.textContent = (i + 1); d.appendChild(idx);
+        const meta = document.createElement("span"); meta.className = "meta";
+        meta.innerHTML = `n=<b>${r.n}</b>`;
+        d.appendChild(meta);
+        const co = document.createElement("span"); co.className = "coords";
+        co.textContent = `t(${r.tx}, ${r.tz})`;
+        d.appendChild(co);
+        d.addEventListener("click", () => openPreview(i, r));
+        frag.appendChild(d);
+      });
+      const _sq = listQueue.scrollTop;
+      listQueue.innerHTML = "";
+      listQueue.appendChild(frag);
+      listQueue.scrollTop = _sq;
+    };
+
+    const renderMatches = (matches) => {
+      cachedMatches = matches;
+      cntMatches.textContent = matches.length;
+      if (!matches.length) {
+        listMatches.innerHTML = '<div class="empty">No classified matches yet...</div>';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      matches.forEach((m, i) => {
+        const d = document.createElement("div");
+        d.className = "row match";
+        const name = document.createElement("span"); name.className = "name";
+        name.innerHTML = `${m.name}<span class="t">t${m.tier}</span>`;
+        d.appendChild(name);
+        // Score: -1 sentinel = exact fingerprint hit. Anything <= 200 is "tight",
+        // higher scores are "soft" (worth double-checking).
+        const sc = document.createElement("span"); sc.className = "score";
+        if (m.score === -1) { sc.classList.add("exact"); sc.textContent = "exact"; }
+        else if (m.score > 200) { sc.classList.add("soft"); sc.textContent = `s=${m.score}`; }
+        else { sc.textContent = `s=${m.score}`; }
+        d.appendChild(sc);
+        const co = document.createElement("span"); co.className = "coords";
+        co.textContent = `t(${m.tx}, ${m.tz})`;
+        d.appendChild(co);
+        if (m.live) {
+          d.style.cursor = "pointer";
+          d.addEventListener("click", () => openMatchPreview(i, m));
+        }
+        frag.appendChild(d);
+      });
+      const _sm = listMatches.scrollTop;
+      listMatches.innerHTML = "";
+      listMatches.appendChild(frag);
+      listMatches.scrollTop = _sm;
+    };
+    let cachedMatches = [];
+    let pendingMatchPreviewIdx = null;
+    const openMatchPreview = (idx, m) => {
+      drawScatter([], 5);
+      modalTitle.textContent = m.name;
+      modalInfo.textContent = `t${m.tier}  tile=(${m.tx}, ${m.tz})  loading full mesh...`;
+      modal.classList.add("on");
+      pendingMatchPreviewIdx = idx + 1;
+      lastPreview = { kind: "match", idx: idx + 1 };
+      fetch("https://bolt-api/send-message",
+        { method: "POST", body: `preview_match:${idx + 1}` }).catch(() => {});
+    };
+    const applyMatchPreview = (idx, header, blob) => {
+      const { sw, sh, mvp, verts } = parseMeshBlob(header, blob);
+      const m = cachedMatches[idx - 1] || {};
+      setPreviewMesh(verts, mvp, sw, sh, `${m.name}  t${m.tier}`);
+    };
+
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      let c = e.data.content;
+      if (c instanceof Uint8Array) c = new TextDecoder().decode(c);
+      else if (c instanceof ArrayBuffer) c = new TextDecoder().decode(new Uint8Array(c));
+      if (typeof c !== "string") return;
+      if (c === "visible:hide") { document.body.style.visibility = "hidden"; document.body.style.pointerEvents = "none"; return; }
+      if (c === "visible:show") { document.body.style.visibility = ""; document.body.style.pointerEvents = ""; return; }
+      if (c.startsWith("res:")) {
+        if (frozen) return;   // belt+suspenders: Lua stops pushing while frozen
+        try { render(JSON.parse(c.slice(4))); } catch (_) {}
+        return;
+      }
+      if (c.startsWith("matches:")) {
+        try { renderMatches(JSON.parse(c.slice(8))); } catch (_) {}
+        return;
+      }
+      // mpts:<i>|<sw>|<sh>|<mvp16>:<blob> - full-mesh reply for a Matches click.
+      if (c.startsWith("mpts:")) {
+        const rest = c.slice(5);
+        const sep = rest.indexOf(":");
+        if (sep < 0) return;
+        const left = rest.slice(0, sep);
+        const blob = rest.slice(sep + 1);
+        const pipeIdx = left.indexOf("|");
+        if (pipeIdx < 0) return;
+        const idx = parseInt(left.slice(0, pipeIdx), 10);
+        const header = left.slice(pipeIdx + 1);
+        if (pendingMatchPreviewIdx === idx) applyMatchPreview(idx, header, blob);
+        return;
+      }
+      // pts:<i>|<sw>|<sh>|<mvp16>:<blob> - full-mesh reply from Lua.
+      if (c.startsWith("pts:")) {
+        const rest = c.slice(4);
+        const sep = rest.indexOf(":");
+        if (sep < 0) return;
+        const left = rest.slice(0, sep);
+        const blob = rest.slice(sep + 1);
+        const pipeIdx = left.indexOf("|");
+        if (pipeIdx < 0) return;
+        const idx = parseInt(left.slice(0, pipeIdx), 10);
+        const header = left.slice(pipeIdx + 1);
+        if (pendingPreviewIdx === idx) applyFullPreview(idx, header, blob);
+      }
+    });
+  </script>
+</body></html>

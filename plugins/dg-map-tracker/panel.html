@@ -1,0 +1,297 @@
+<!doctype html>
+<html><head><style>
+  :root {
+    --bg: #3e352a;
+    --bg-alt: #4b402f;
+    --bg-hover: #5a4d38;
+    --border: #6b5b3f;
+    --border-strong: #967a4a;
+    --text: #f0d493;
+    --text-dim: #b8a17a;
+    --text-faint: #8a7454;
+    --accent: #ffcf6b;
+    --danger: #d67c4c;
+  }
+  html, body { margin: 0; padding: 0; background: transparent; color: var(--text);
+    font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; height: 100%; user-select: none; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+
+  .card {
+    width: 100%; height: 100%; box-sizing: border-box;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    display: flex; flex-direction: column;
+  }
+
+  .header {
+    padding: 8px 10px;
+    cursor: move;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #4b402f 0%, #3e352a 100%);
+    flex: none;
+    display: flex; align-items: center; gap: 8px;
+    overflow: hidden;
+  }
+  .title { font-size: 12px; font-weight: 700; color: var(--accent);
+    letter-spacing: 0.4px; text-transform: uppercase;
+    text-shadow: 1px 1px 0 rgba(0,0,0,0.45); }
+  .tabs { display: flex; gap: 2px; flex: 1; min-width: 0; }
+  .tab {
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 4px;
+    background: var(--bg-alt);
+    color: var(--text-dim);
+    font-weight: 700; font-size: 12px;
+    display: inline-flex; align-items: center; gap: 5px;
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .tab:hover { background: var(--bg-hover); color: var(--text); }
+  .tab.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .count { font-size: 11px; font-variant-numeric: tabular-nums;
+    padding: 0 5px; border-radius: 6px; background: rgba(0,0,0,0.25); }
+  .tab.active .count { background: rgba(0,0,0,0.35); color: var(--bg); }
+
+  .btn {
+    cursor: pointer; padding: 5px 10px; border-radius: 4px;
+    background: var(--bg-alt); color: var(--danger);
+    border: 1px solid rgba(214, 124, 76, 0.5);
+    font-weight: 700; font-size: 12px; white-space: nowrap; flex: none;
+  }
+  .btn:hover { background: rgba(214, 124, 76, 0.15); }
+
+  .grid {
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    grid-auto-rows: 64px;
+    gap: 6px;
+    padding: 8px;
+    align-content: start;
+  }
+  .grid::-webkit-scrollbar { width: 8px; }
+  .grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .cell {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .cell canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+  .cell .idx {
+    position: absolute; top: 2px; left: 4px;
+    font-size: 11px; font-weight: 700;
+    color: var(--text);
+    background: rgba(0,0,0,0.65);
+    padding: 1px 4px; border-radius: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cell .name {
+    position: absolute; bottom: 2px; left: 4px; right: 4px;
+    font-size: 10px; color: var(--accent);
+    text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    background: rgba(0,0,0,0.65); padding: 1px 3px; border-radius: 3px;
+  }
+
+  .empty { color: var(--text-faint); font-size: 12px; text-align: center;
+    padding: 30px; grid-column: 1 / -1; }
+
+  .cell.selectable { cursor: pointer; }
+  .cell.selectable:hover { border-color: var(--accent); }
+
+  /* Simple detail popup - displays the icon large + its full name. */
+  .modal-back {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: none; align-items: center; justify-content: center;
+    z-index: 10;
+  }
+  .modal-back.on { display: flex; }
+  .modal {
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 14px;
+    min-width: 200px;
+    max-width: 320px;
+    display: flex; flex-direction: column; gap: 10px;
+    align-items: center;
+    cursor: default;
+  }
+  .modal .preview {
+    display: flex; align-items: center; justify-content: center;
+    padding: 10px;
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .modal .preview canvas { image-rendering: pixelated; }
+  .modal .full-name {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.3px;
+    text-shadow: 1px 1px 0 rgba(0,0,0,0.45);
+    text-align: center;
+    word-break: break-word;
+  }
+</style></head><body>
+  <div class="card">
+    <div class="header" id="header">
+      <span class="title">Tracker</span>
+      <div class="tabs">
+        <span class="tab active" data-mode="queue"      id="tab-queue">Q <span class="count" id="c-queue">0</span></span>
+        <span class="tab"        data-mode="ignored"    id="tab-ignored">Ign <span class="count" id="c-ignored">0</span></span>
+        <span class="tab"        data-mode="classified" id="tab-classified">Cls <span class="count" id="c-classified">0</span></span>
+      </div>
+      <span class="btn" id="clear">Clear queue</span>
+    </div>
+    <div class="grid" id="grid"><div class="empty">No images</div></div>
+  </div>
+
+  <div class="modal-back" id="modal">
+    <div class="modal">
+      <div class="preview" id="preview"></div>
+      <div class="full-name" id="full-name"></div>
+    </div>
+  </div>
+
+  <script>
+    const header = document.getElementById("header");
+    const grid = document.getElementById("grid");
+    const clearBtn = document.getElementById("clear");
+    const tabs = document.querySelectorAll(".tab");
+    const cQueue = document.getElementById("c-queue");
+    const cIgnored = document.getElementById("c-ignored");
+    const cClassified = document.getElementById("c-classified");
+
+    const send = (b) => fetch("https://bolt-api/send-message", { method: "POST", body: b }).catch(() => {});
+    header.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest(".tab") || e.target.closest(".btn")) return;
+      fetch("https://bolt-api/start-reposition?h=0&v=0").catch(() => {});
+    });
+
+    const setMode = (mode) => {
+      tabs.forEach((x) => x.classList.remove("active"));
+      document.getElementById("tab-" + mode).classList.add("active");
+      clearBtn.style.display = (mode === "queue") ? "" : "none";
+    };
+    tabs.forEach((t) => {
+      t.addEventListener("mousedown", (e) => e.stopPropagation());
+      t.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setMode(t.dataset.mode);
+        send("mode:" + t.dataset.mode);
+      });
+    });
+    clearBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+    clearBtn.addEventListener("click", () => send("clear_queue"));
+
+    let namedList = [];
+
+    const modal = document.getElementById("modal");
+    const preview = document.getElementById("preview");
+    const fullNameEl = document.getElementById("full-name");
+    const openDetail = (srcCanvas, w, h, name) => {
+      preview.innerHTML = "";
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(srcCanvas, 0, 0);
+      const scale = Math.min(6, 140 / Math.max(w, h));
+      c.style.width  = Math.round(w * scale) + "px";
+      c.style.height = Math.round(h * scale) + "px";
+      preview.appendChild(c);
+      fullNameEl.textContent = name;
+      modal.classList.add("on");
+    };
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.remove("on"); });
+
+    const renderIcons = (buf) => {
+      const view = new DataView(buf);
+      const mode = view.getUint32(0, true);
+      const count = view.getUint32(4, true);
+      const qTotal = view.getUint32(8, true);
+      cQueue.textContent = qTotal;
+      if (mode === 1) cIgnored.textContent = count;
+      else if (mode === 2) cClassified.textContent = count;
+
+      const activeName = document.querySelector(".tab.active").dataset.mode;
+      const bufMode = mode === 0 ? "queue" : (mode === 1 ? "ignored" : "classified");
+      if (activeName !== bufMode) return;
+
+      grid.innerHTML = "";
+      if (count === 0) {
+        const e = document.createElement("div");
+        e.className = "empty";
+        e.textContent = "No images";
+        grid.appendChild(e);
+        return;
+      }
+      let off = 16;
+      for (let i = 0; i < count; i++) {
+        const w = view.getUint32(off, true); off += 4;
+        const h = view.getUint32(off, true); off += 4;
+        const pixels = new Uint8ClampedArray(buf, off, w * h * 4);
+        off += w * h * 4;
+
+        const cell = document.createElement("div");
+        cell.className = "cell" + (mode === 2 ? " selectable" : "");
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").putImageData(new ImageData(pixels, w, h), 0, 0);
+        const maxSide = 44;
+        const scale = Math.min(2, maxSide / Math.max(w, h));
+        canvas.style.width  = Math.round(w * scale) + "px";
+        canvas.style.height = Math.round(h * scale) + "px";
+        cell.appendChild(canvas);
+
+        const idx = document.createElement("span");
+        idx.className = "idx";
+        idx.textContent = i + 1;
+        cell.appendChild(idx);
+
+        // On Classified tab, clicking a cell shows a bigger preview + the full
+        // name (which would otherwise get truncated inside the small cell).
+        if (mode === 2) {
+          const name = namedList[i] || "?";
+          cell.addEventListener("click", () => openDetail(canvas, w, h, name));
+        }
+        grid.appendChild(cell);
+      }
+    };
+
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      let c = e.data.content;
+      if (c instanceof Uint8Array) c = c.buffer.slice(c.byteOffset, c.byteOffset + c.byteLength);
+      const handleText = (t) => {
+        if (t === "visible:hide") { document.body.style.visibility = "hidden"; document.body.style.pointerEvents = "none"; return true; }
+        if (t === "visible:show") { document.body.style.visibility = ""; document.body.style.pointerEvents = ""; return true; }
+        if (t.startsWith("named:")) {
+          namedList = t.slice(6).split(",").filter(Boolean);
+          cClassified.textContent = namedList.length;
+          return true;
+        }
+        return false;
+      };
+      if (typeof c === "string") { handleText(c); return; }
+      if (c instanceof ArrayBuffer) {
+        const first = new Uint8Array(c, 0, 1)[0];
+        if (first >= 0x20) { handleText(new TextDecoder().decode(c)); return; }
+        renderIcons(c);
+      }
+    });
+
+    setMode("queue");
+  </script>
+</body></html>

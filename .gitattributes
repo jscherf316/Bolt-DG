@@ -1,0 +1,13 @@
+# Normalize text files to LF in the repo; check out with native line
+# endings on each platform. Keeps diffs stable across Windows / Linux
+# developers.
+* text=auto
+
+# Explicit LF for source and manifest formats.
+*.lua       text eol=lf
+*.html      text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.txt       text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf

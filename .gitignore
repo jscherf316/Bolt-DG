@@ -1,0 +1,28 @@
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup / working files
+*.bak
+*.orig
+*.rej
+
+# Local ignore for anything the ecosystem might spit into these
+# plugin dirs during dev (dev_mode.txt is meant to be local-only).
+plugins/*/dev_mode.txt
+__pycache__/
+
+# Session handoff notes for Claude -- local only, not part of the plugin
+CLAUDE-READ-FIRST.md
+
+# Design plans and UI mocks are working material, not shipped plugin content.
+*_PLAN.md
+*_mock.html

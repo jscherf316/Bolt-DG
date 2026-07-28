@@ -1,0 +1,68 @@
+<!doctype html>
+<html><head><style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; height: 100%;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; }
+  /* The client clamps embedded browsers to 60x60 minimum (WINDOW_MIN_SIZE),
+     so the visible button is a 36px strip at the TOP of the square and the
+     rest of the page stays transparent. NB: the transparent remainder still
+     sits inside the browser rect and intercepts clicks -- the dead zone is
+     the 24px directly below the button. */
+  .btn {
+    width: 100%; height: 36px; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(180deg, #4b402f 0%, #3e352a 100%);
+    color: #f0d493;
+    border: 1px solid #967a4a;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+  }
+  .btn:hover {
+    background: linear-gradient(180deg, #5a4d38 0%, #4b402f 100%);
+    color: #ffcf6b;
+  }
+</style></head><body>
+  <div class="btn" id="btn">CTRL</div>
+  <script>
+    // Same pattern the devplugin uses on a native Bolt window:
+    //   mousedown → arm, record position
+    //   mousemove past a small threshold → hand control to Bolt for a drag
+    //   mouseup without exceeding threshold → treat as click
+    // Deferring start-reposition until after real movement is the key —
+    // calling it in mousedown makes Bolt capture the mouse before mouseup
+    // ever fires in the HTML.
+    const btn = document.getElementById("btn");
+    const DRAG_THRESHOLD = 4;
+    let held = false, startX = 0, startY = 0, dragged = false;
+
+    btn.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      held = true;
+      dragged = false;
+      startX = e.screenX;
+      startY = e.screenY;
+    });
+    btn.addEventListener("mousemove", (e) => {
+      if (!held || dragged) return;
+      if (Math.abs(e.screenX - startX) >= DRAG_THRESHOLD ||
+          Math.abs(e.screenY - startY) >= DRAG_THRESHOLD) {
+        dragged = true;
+        fetch("https://bolt-api/start-reposition?h=0&v=0").catch(() => {});
+      }
+    });
+    btn.addEventListener("mouseup", (e) => {
+      if (e.button !== 0) return;
+      const wasClick = held && !dragged;
+      held = false;
+      if (wasClick) {
+        fetch("https://bolt-api/send-message", { method: "POST", body: "open" }).catch(() => {});
+      }
+    });
+    // If the pointer leaves the button mid-drag/click, cancel arming.
+    btn.addEventListener("mouseleave", () => { if (!dragged) held = false; });
+  </script>
+</body></html>

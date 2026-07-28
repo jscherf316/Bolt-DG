@@ -1,0 +1,17 @@
+# Puzzle-room ghosts. Two attackable NPCs sharing ONE mesh (n=1428) that differ
+# only in baked vertex brightness -- the DARK one is the vulnerable GOOD_GHOST,
+# the light ones are BAD_GHOSTs, and the game rotates which ghost is vulnerable
+# on a timer.
+#
+# These are NOT resources. They never enter the unknown queue, never bind a
+# sighting and never reach the parity evidence -- main.lua detects them ahead of
+# the resource path and returns. The only consumer is the in-world highlight.
+#
+# Same format as guardian_doors.txt: NAME|tier|n|ix,x,y,z,r,g,b|... (5 samples).
+# Positions are recorded for reference only; matching is by vertexcount plus a
+# scale-invariant colour signature, because these animate. The two luminances
+# below set the single-ghost fallback threshold (their midpoint); with two or
+# more ghosts on screen the darkest is picked instead, which is robust to the
+# room's lighting in a way an absolute threshold is not.
+GOOD_GHOST|0|1428|238,28,624,-64,156,156,159|476,0,492,32,154,154,156|714,-40,560,-48,149,149,152|952,0,252,-64,156,156,159|1190,16,532,12,154,154,156
+BAD_GHOST|0|1428|238,28,624,-64,191,191,194|476,0,492,32,188,188,191|714,-40,560,-48,183,183,186|952,0,252,-64,191,191,194|1190,16,532,12,188,188,191

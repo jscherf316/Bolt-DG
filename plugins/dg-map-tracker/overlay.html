@@ -1,0 +1,118 @@
+<!doctype html>
+<html><head><style>
+  html, body {
+    margin: 0; padding: 0; background: transparent;
+    color: #ffcf6b; font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; height: 100%; user-select: none;
+  }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+
+  /* Fill the whole browser with an outlined semi-transparent rectangle so the
+     user can see through to the game underneath while framing the region.
+     The WHOLE interior is the drag surface -- the old corner grab-tab pushed
+     the zone label sideways and was invisible-UI to boot (fresh-install
+     feedback 2026-07-27). */
+  .frame {
+    position: absolute;
+    inset: 0;
+    box-sizing: border-box;
+    border: 2px dashed #ffcf6b;
+    background: rgba(255, 207, 107, 0.06);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5) inset;
+    cursor: move;
+  }
+
+  /* Edge and corner grab zones. Sized generously so they're easy to grab. */
+  .edge, .corner { position: absolute; }
+  .edge.top    { top: 0;    left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
+  .edge.bot    { bottom: 0; left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
+  .edge.left   { top: 12px; bottom: 12px; left: 0;  width: 8px;  cursor: ew-resize; }
+  .edge.right  { top: 12px; bottom: 12px; right: 0; width: 8px;  cursor: ew-resize; }
+
+  /* One visible resize square, bottom-right only -- the other three corners
+     were clutter. Their invisible edge strips still resize. */
+  .corner {
+    width: 12px; height: 12px;
+    background: #ffcf6b;
+    border: 1px solid rgba(0, 0, 0, 0.55);
+    border-radius: 2px;
+  }
+  .corner.br { bottom: 0; right: 0; cursor: nwse-resize; }
+
+  /* Zone name, top-left corner: black text on a solid chip of the zone's
+     colour. Multi-word names stack one word per line (JS). Which box is which
+     was genuinely unanswerable before this (fresh-install feedback 2026-07-27). */
+  .label {
+    position: absolute;
+    left: 4px; top: 4px;               /* gap between the chip and the zone corner */
+    padding: 2px 7px;                  /* scaleX shrinks this too; sized to read */
+    color: #000;
+    font-size: 13px; font-weight: bold; letter-spacing: 0;
+    line-height: 1.15;
+    transform: scaleX(0.85);           /* squish horizontally */
+    transform-origin: left top;
+    white-space: pre-line;
+    pointer-events: none;
+  }
+</style></head><body>
+  <div class="frame" id="frame"></div>
+  <div class="label" id="label"></div>
+
+  <div class="edge top"    data-h="0"  data-v="-1"></div>
+  <div class="edge bot"    data-h="0"  data-v="1"></div>
+  <div class="edge left"   data-h="-1" data-v="0"></div>
+  <div class="edge right"  data-h="1"  data-v="0"></div>
+
+  <div class="corner br"   data-h="1"  data-v="1"></div>
+
+  <script>
+    // Any edge/corner starts a resize by that anchor via Bolt's reposition API.
+    // Anywhere in the interior starts a move (h=0, v=0) -- edges and corners
+    // stopPropagation so their mousedown never bubbles up to the body's.
+    const startReposition = (h, v) =>
+      fetch(`https://bolt-api/start-reposition?h=${h}&v=${v}`).catch(() => {});
+
+    document.body.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      startReposition(0, 0);
+    });
+    document.querySelectorAll(".edge, .corner").forEach((el) => {
+      el.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        startReposition(el.dataset.h, el.dataset.v);
+      });
+    });
+
+    // Per-zone identity. The page is shared by all three capture zones, so it
+    // asks its OWNING browser for config on load and the Lua side answers with
+    // "cfg:NAME|RRGGBB" -- request/reply beats a config push, which could race
+    // the page load and be dropped.
+    const applyCfg = (name, hex) => {
+      const col = "#" + hex;
+      const label = document.getElementById("label");
+      label.textContent = name.split(" ").join("\n");   // one word per line
+      label.style.background = col;
+      const frame = document.getElementById("frame");
+      frame.style.borderColor = col;
+      frame.style.background = col + "10";       // 8-digit hex: ~6% alpha tint
+      document.querySelectorAll(".corner").forEach((el) => { el.style.background = col; });
+    };
+
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      let c = e.data.content;
+      if (c instanceof Uint8Array) c = new TextDecoder().decode(c);
+      else if (c instanceof ArrayBuffer) c = new TextDecoder().decode(new Uint8Array(c));
+      if (typeof c !== "string") return;
+      if (c === "visible:hide") { document.body.style.visibility = "hidden"; document.body.style.pointerEvents = "none"; }
+      else if (c === "visible:show") { document.body.style.visibility = ""; document.body.style.pointerEvents = ""; }
+      else if (c.startsWith("cfg:")) {
+        const m = c.slice(4).split("|");
+        if (m.length === 2) applyCfg(m[0], m[1]);
+      }
+    });
+
+    fetch("https://bolt-api/send-message", { method: "POST", body: "cfg?" }).catch(() => {});
+  </script>
+</body></html>

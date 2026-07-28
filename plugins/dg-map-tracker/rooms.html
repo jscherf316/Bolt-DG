@@ -1,0 +1,1004 @@
+<!doctype html>
+<html><head><style>
+  :root {
+    --bg: #3e352a;
+    --bg-alt: #4b402f;
+    --bg-hover: #5a4d38;
+    --border: #6b5b3f;
+    --border-strong: #967a4a;
+    --text: #f0d493;
+    --text-dim: #b8a17a;
+    --text-faint: #8a7454;
+    --accent: #ffcf6b;
+    --cell-empty: #000000;
+    --cell-body: var(--cell-base);
+    --cell-base: #7a5a2a;
+    --cell-boss: #8a2a2a;
+    --cell-player: #b04a2a;
+    --cell-unopened: var(--cell-body);
+    --par-unknown: #2e230d;
+    --par-bonus:   #24190d;
+    --par-crit:    #dab260;   /* critical path = brighter room-tan */
+  }
+  html, body { margin: 0; padding: 0; background: transparent; color: var(--text);
+    font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; height: 100%; user-select: none; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+  .card {
+    width: 100%; height: 100%; box-sizing: border-box;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    cursor: move;
+    display: flex; flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  .title-bar {
+    flex: 0 0 20px;                    /* fixed height so grid area is predictable */
+    box-sizing: border-box;
+    padding: 3px 6px;
+    background: var(--bg-alt);
+    color: var(--text);
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 13px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    user-select: none;
+  }
+  /* Equal-flex side slots keep the title truly centred no matter how wide
+     the rpm text / sync badge / crit count get. */
+  #hdr-title { flex: 0 1 auto; text-align: center; min-width: 0; }
+  .hdr-side {
+    flex: 1 1 0; min-width: 0; font-weight: normal;
+    opacity: 0.85; font-variant-numeric: tabular-nums;
+  }
+  #hdr-rpm  { text-align: left; }
+  .hdr-side.left {
+    display: flex; align-items: center; justify-content: flex-start; gap: 10px;
+  }
+  .hdr-side.right {
+    display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+  }
+  /* Party-sync badge: hidden unless the sidecar exists (empty third hdr
+     field). Dot colour tracks connection state; count = room total incl.
+     ourself. */
+  #hdr-sync {
+    flex: 0 0 auto; display: none; align-items: center; gap: 4px;
+    font-weight: normal; font-size: 11px; opacity: 0.9;
+    font-variant-numeric: tabular-nums;
+  }
+  #hdr-sync .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: #888888;
+    display: inline-block;
+  }
+  #hdr-sync.connected .dot { background: #7abd50; }
+  #hdr-sync.pending .dot   { background: #ffcf6b; }
+  #hdr-sync.down .dot      { background: #d67c4c; }
+  /* Floor dead: a parity contradiction stopped the mapping, so the grid below
+     is FROZEN at the moment of death. It still looks like a live map, which is
+     exactly why this has to shout -- a stale map read as current is worse than
+     no map. See floor_dead.txt for the two colliding claims. */
+  .title-bar.dead {
+    background: #8b1a1a;
+    color: #ffe0e0;
+  }
+  .grid-wrap {
+    flex: 1 1 auto;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0;
+    container-type: size;
+    min-height: 0; min-width: 0;
+  }
+  /* Grid stays 1:1 within the remaining card area below the title bar. */
+  .grid {
+    aspect-ratio: 1 / 1;
+    width: min(100%, 100cqh);       /* fit to smaller of card w/h */
+    max-width: 100%; max-height: 100%;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    gap: 1.3%;
+    padding: 1.3%;
+    background: #000000;
+    border-radius: 3px;
+    position: relative;
+    container-type: size;
+  }
+  /* Floor dead: the whole map backdrop goes red. The grid is FROZEN at the
+     moment the contradiction fired, and a frozen map is pixel-identical to a
+     live one -- so the background itself has to carry the warning, not just the
+     title bar. Cleared when a new floor starts. --cell-empty is overridden too:
+     the empty cells inherit black from the variable, and without this they stay
+     black islands in a red field, which reads as a rendering glitch rather than
+     a deliberate alarm. */
+  .grid.dead {
+    background: #6e0f0f;
+    --cell-empty: #6e0f0f;
+  }
+  .cell {
+    background: var(--cell-empty);
+    border: 3px solid transparent;
+    border-radius: 3px;
+    position: relative;
+    display: flex; flex-direction: column;
+    padding: 2px;
+    overflow: visible;              /* corridors extend past the cell edge */
+    min-width: 0; min-height: 0;
+  }
+  /* PGT / group-gatestone layer: absolute slots centred over everything else
+     in the cell. Nudged slightly right (left 56%) because the mesh
+     silhouettes read left-of-centre. A lone icon sits dead centre; when
+     several gatestones share a room the PGTs take small fixed side offsets
+     (.tslot-red / .tslot-green) while GGS keeps the centre and the top of
+     the stack. */
+  .top-icons {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    z-index: 3;
+  }
+  .top-icons > * {
+    position: absolute; left: 56%; top: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .top-icons > .tslot-red   { transform: translate(calc(-50% - 32cqw), -50%); }
+  .top-icons > .tslot-green { transform: translate(calc(-50% + 32cqw), -50%); }
+  .top-icons > .tslot-ggs   { z-index: 1; }
+  /* Overlay icons scale with cell size via container queries. cqw resolves
+     to the container's CONTENT box (cell outer minus 3px border + 2px
+     padding on each side ~= 75% of outer), so these percentages are set
+     to what looks like the intended fraction of the cell OUTER width.
+     Overrides the inline width atlasCanvas sets in JS. */
+  .overlays > canvas, .overlays > svg { width: 100cqw !important; height: auto !important; }
+  /* Skill-door icons render smaller than keys so they don't dominate. */
+  .overlays > canvas.door-icon { width: 80cqw !important; }
+  .overlays > canvas.base-icon { width: 85cqw !important; }
+  .top-icons  > canvas, .top-icons  > svg { width: 90cqw !important; height: auto !important; }
+  /* Drop shadow under the icons. The built-in map's keys sit on a shadow, and
+     that -- not the lighting -- is what separates them from the floor: counting
+     pixels darker than luminance 18, the game's corner cell is 15.1% vs our
+     4.8%. drop-shadow() keys off the canvas alpha, so it traces the icon's
+     silhouette rather than its bounding box. Sized in cqw so it tracks the cell
+     as the panel resizes. Applies to the icon only; the cell background is
+     deliberately left alone. */
+  .overlays > canvas, .top-icons > canvas, .player-icons > canvas {
+    filter: drop-shadow(4cqw 7cqw 4cqw rgba(0, 0, 0, 0.9));
+  }
+  /* Question-mark glyph for UNOPENED_*_QUESTION guardian doors. */
+  .unopened-question {
+    position: absolute;
+    inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-weight: 900;
+    font-size: 85cqw;                 /* 85% of cell content-box width */
+    line-height: 1;
+    color: var(--accent);
+    text-shadow: 0 0 4px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.9);
+    pointer-events: none;
+    z-index: 2;
+  }
+  .cell { container-type: size; }
+  /* Corridor: solid slice of cell-body colour extending into the grid gap so
+     rooms visually connect across the border/gap. */
+  .corridor {
+    position: absolute; background: inherit; z-index: 0;
+    pointer-events: none; border-radius: 1px;
+  }
+  .corridor.n { top: -17%;    left: 32%;   width: 36%;  height: 22%; }
+  .corridor.s { bottom: -17%; left: 32%;   width: 36%;  height: 22%; }
+  .corridor.e { right: -17%;  top: 32%;    height: 36%; width: 22%; }
+  .corridor.w { left: -17%;   top: 32%;    height: 36%; width: 22%; }
+  .cell.body     { background: var(--cell-body); border-style: double; }
+  .cell.base     { background: var(--cell-base); border-style: double; }
+  .cell.boss     { background: var(--cell-boss); border-style: double; }
+  .cell.unopened { background: var(--cell-unopened); border-style: double; }
+  .cell.unopened.par-bonus { border-style: dashed; }
+  .cell.par-unknown { border-color: var(--par-unknown); }
+  .cell.par-bonus   { border-color: var(--par-bonus); }
+  .cell.par-crit    { border-color: var(--par-crit); border-style: double; }
+  /* Bonus rooms: dim body colour so they visually recede vs crit/unknown. */
+  .cell.par-bonus.body,
+  .cell.par-bonus.base,
+  .cell.par-bonus.boss,
+  .cell.par-bonus.unopened {
+    background: #5c4728;
+  }
+  /* Crit rooms: bumped brighter tan so the path stands out clearly. */
+  .cell.par-crit.body,
+  .cell.par-crit.base,
+  .cell.par-crit.boss,
+  .cell.par-crit.unopened {
+    background: #a67c38;
+  }
+  /* Unopened rooms (with or without a key overlay): inset shadow around the
+     interior so the icon sits in a darker recessed pocket. */
+  .cell.unopened {
+    box-shadow: inset 0 0 10px 4px rgba(0,0,0,0.85);
+  }
+  /* Extend the shadow along the corridor: gradient from dark (cell side) to
+     the inherited body colour (gap side) so the corridor mouth matches the
+     shadowed interior. */
+  .cell.unopened .corridor.n {
+    background-image: linear-gradient(to top, rgba(0,0,0,0.85), transparent 65%);
+  }
+  .cell.unopened .corridor.s {
+    background-image: linear-gradient(to bottom, rgba(0,0,0,0.85), transparent 65%);
+  }
+  .cell.unopened .corridor.e {
+    background-image: linear-gradient(to right, rgba(0,0,0,0.85), transparent 65%);
+  }
+  .cell.unopened .corridor.w {
+    background-image: linear-gradient(to left, rgba(0,0,0,0.85), transparent 65%);
+  }
+  /* Key we hold: swap the parity border colour to a bright silver-white so
+     the room reads as unlocked at a glance. Crit/unknown use solid; bonus
+     stays muted with a dashed border so it doesn't pull focus. */
+  .cell.key-held { border-color: #e6e6e6 !important; }
+  .cell.par-crit.key-held,
+  .cell.par-unknown.key-held { border-style: solid !important; }
+  /* CRIT *and* we hold its key: yellow. This is the single most actionable cell
+     on the map -- the next move on the critical path, already unlocked -- so it
+     gets its own colour rather than being folded into the generic silver.
+     It also fixes a real blind spot: silver overrode the crit border, and on an
+     UNOPENED room the crit background is the only other parity channel and the
+     recess shadow below buries it -- so crit+key-held was the one combination
+     that displayed no parity at all. Beats .cell.key-held on specificity
+     (0,3,0 vs 0,2,0), which is what settles it since both are !important. */
+  .cell.par-crit.key-held { border-color: #ffe14d !important; }
+  .cell.par-bonus.key-held {
+    border-color: #b8b0a0 !important;
+    border-style: dashed !important;
+  }
+
+  .doors { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+  .overlays {
+    position: relative;             /* stacks above the absolutely-positioned .doors */
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    align-items: center;            /* vertical centre inside the cell */
+    justify-content: center;        /* horizontal centre */
+    width: 100%;
+    height: 100%;
+  }
+  .overlay-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px;
+    font-size: 12px; font-weight: 800;
+    border-radius: 3px;
+    color: #111;
+    line-height: 1;
+  }
+  /* Player-gate-token + gatestone markers - small saturated squares that
+     live in the cell's top-right corner. Only opened rooms hold these. */
+  .markers {
+    position: absolute;
+    top: 2px; right: 2px;
+    z-index: 2;
+    display: flex; gap: 2px;
+    pointer-events: none;
+  }
+  .marker {
+    width: 8px; height: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.55);
+    border-radius: 2px;
+  }
+  /* Player markers: cataloged map icons at fixed absolute slots -- 1 top-left,
+     2 top-right, 3 bottom-left, 4 bottom-middle, 5 bottom-right. The layer
+     sits ON TOP of everything else in the cell, including PGT/GGS (z 4 vs 3).
+     .player-num is the numbered fallback glyph for markers whose icon isn't
+     in the atlas yet. */
+  .player-icons {
+    position: absolute; inset: 0;
+    z-index: 4;
+    pointer-events: none;
+  }
+  .player-icons > * { position: absolute; }
+  .player-icons > canvas { width: 40cqw !important; height: auto !important; }
+  .player-num {
+    color: #fff;
+    font: 800 12px "Trebuchet MS", sans-serif;
+    line-height: 1;
+    text-shadow: 0 0 2px #000, 0 0 2px #000;
+  }
+  .pslot-1 { top: 2%; left: 4%; }
+  .pslot-2 { top: 2%; right: 4%; }
+  .pslot-3 { bottom: 2%; left: 4%; }
+  .pslot-4 { bottom: 2%; left: 50%; transform: translateX(-50%); }
+  .pslot-5 { bottom: 2%; right: 4%; }
+</style></head><body>
+  <div class="card" id="card">
+    <div class="title-bar">
+      <span class="hdr-side left">
+        <span id="hdr-rpm"></span>
+        <span id="hdr-crit"></span>
+      </span>
+      <span id="hdr-title">DG Map</span>
+      <span class="hdr-side right">
+        <span id="hdr-sync"><span class="dot"></span><span class="count"></span></span>
+      </span>
+    </div>
+    <div class="grid-wrap">
+      <div class="grid" id="grid"></div>
+    </div>
+  </div>
+
+  <script>
+    const card = document.getElementById("card");
+    const grid = document.getElementById("grid");
+    // Drag anywhere on the card to reposition. h=0 v=0 => pure move, no resize.
+    card.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      fetch("https://bolt-api/start-reposition?h=0&v=0").catch(() => {});
+    });
+
+    // Raw mesh per key so shape_rot updates from Lua can re-rasterise.
+    const keyMeshRaw = {};
+    // Set of color_shape keys we currently hold (from held_keys: message).
+    // Used to draw a white outline on key doors we can open.
+    let heldKeys = new Set();
+    // Cache the last rooms payload so a held_keys: update can trigger a repaint.
+    let lastRooms = null;
+    const cells = new Array(64);
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        const d = document.createElement("div");
+        d.className = "cell";
+        d.dataset.gx = x; d.dataset.gz = y;
+        cells[y * 8 + x] = d;
+        grid.appendChild(d);
+      }
+    }
+
+    // Color / shape catalog for key overlays.
+    const COLORS = {
+      gold:    "#d4a03e",
+      silver:  "#c8c8c8",
+      blue:    "#4b7dc4",
+      green:   "#4b9c58",
+      purple:  "#8654a9",
+      crimson: "#b04a4a",
+      orange:  "#d67c3c",
+      yellow:  "#e0c73e",
+    };
+    // Canonical shape suffixes for `color_shape` key names. Used to detect
+    // which overlays are key-icons vs other markers.
+    const SHAPE_NAMES = new Set([
+      "triangle", "rectangle", "wedge", "corner",
+      "pentagon", "diamond",   "shield", "crescent",
+    ]);
+
+    // Two atlas caches: key icons (color_shape names, keyed lowercase)
+    // and dg-map-tracker's img_signatures (ICON_BASE / DOOR_* etc, kept as-is).
+    const keyAtlasImageData = {};
+    const imgAtlasImageData = {};
+    const hexToImageData = (w, h, hex) => {
+      const bytes = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+      }
+      return new ImageData(bytes, w, h);
+    };
+    // Rasterise a key's mesh (from icons_data.txt via Lua) into an ImageData
+    // at native captured size. Projection + barycentric triangle fill; matches
+    // the auto-classifier's math (see icons.html drawProjected).
+    // Per-shape camera rotation. Key names are "color_shape" (e.g. "blue_diamond");
+    // rotation is chosen by the SHAPE half so all diamonds share one angle, all
+    // corners another, etc. Adjust each row independently to taste.
+    const SHAPE_ROT = {
+      triangle:  { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      rectangle: { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      wedge:     { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      corner:    { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      pentagon:  { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      diamond:   { pitch: 0, yaw: 0.1, roll: 0, scale: 1, tx: 0, ty: 0 },
+      shield:    { pitch: -0.5, yaw: 0.2, roll: 0, scale: 1, tx: 0, ty: 0 },
+      crescent:  { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+    };
+    const shapeOf = (name) => {
+      const m = (name || "").toLowerCase().match(/^[^_]+_(.+)$/);
+      return m ? m[1] : "";
+    };
+    const rasterizeMesh = (sw, sh, mvpS, ptsS, name) => {
+      if (!(sw > 0 && sh > 0) || !mvpS || !ptsS) return null;
+      const m = mvpS.split(",").map(Number);
+      if (m.length !== 16) return null;
+      const rawVerts = [];
+      for (const chunk of ptsS.split(";")) {
+        const p = chunk.split(",").map(Number);
+        if (p.length !== 6) continue;
+        rawVerts.push({ x: p[0], y: p[1], z: p[2], r: p[3], g: p[4], b: p[5] });
+      }
+      if (rawVerts.length < 3) return null;
+      // Pre-projection rotation to shift the captured camera angle. Positive
+      // PITCH tilts the top toward the viewer; positive YAW rotates so the
+      // right side comes forward. Applied to model verts before MVP so
+      // downstream lighting normals stay consistent with the projected shape.
+      const rot = SHAPE_ROT[shapeOf(name)] || { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 };
+      const PITCH = rot.pitch, YAW = rot.yaw, ROLL = rot.roll || 0;
+      const SCALE = rot.scale == null ? 1 : rot.scale;
+      const TX = rot.tx || 0, TY = rot.ty || 0;
+      const cP = Math.cos(PITCH), sP = Math.sin(PITCH);
+      const cY = Math.cos(YAW),   sY = Math.sin(YAW);
+      const cR = Math.cos(ROLL),  sR = Math.sin(ROLL);
+      const verts = rawVerts.map((v) => {
+        // Uniform scale (zoom), then pitch (X), yaw (Y), roll (Z).
+        const sx = v.x * SCALE, sy = v.y * SCALE, sz = v.z * SCALE;
+        const y1 = sy * cP - sz * sP;
+        const z1 = sy * sP + sz * cP;
+        const x2 =  sx * cY + z1 * sY;
+        const z2 = -sx * sY + z1 * cY;
+        const x3 = x2 * cR - y1 * sR;
+        const y3 = x2 * sR + y1 * cR;
+        return { x: x3, y: y3, z: z2, r: v.r, g: v.g, b: v.b };
+      });
+      // Resolution is decoupled from the game's captured icon size. sw/sh is
+      // just the size RS happened to draw at (24x24) -- we hold the mesh, which
+      // is vector data, so it is not a resolution ceiling. Rasterise ATLAS_PX
+      // (long axis) at SSx supersample, then box-filter down ourselves below.
+      //
+      // ATLAS_PX is chosen so the browser's final CSS step stays near a 2x
+      // reduction at the default cell (icon ~32px): CSS `image-rendering: auto`
+      // is bilinear, which reads ~4 texels no matter how far it is minifying,
+      // so it undersamples badly past 2x. Emitting the old 96px atlas into a
+      // 32px box was a 3x reduction -- most of the supersample was discarded by
+      // the browser and the aliasing survived. At exactly 2x, bilinear's 2x2 tap
+      // IS a box filter, so the chain stays correct end to end.
+      const ATLAS_PX = 64;
+      const SS = 4;
+      const fit = ATLAS_PX / Math.max(sw, sh);          // keep the capture's aspect
+      const outW = Math.max(1, Math.round(sw * fit));
+      const outH = Math.max(1, Math.round(sh * fit));
+      const rw = outW * SS, rh = outH * SS;             // internal raster size
+      const P = new Array(verts.length);
+      for (let i = 0; i < verts.length; i++) {
+        const v = verts[i];
+        const cx = m[0]*v.x + m[4]*v.y + m[8]*v.z  + m[12];
+        const cy = m[1]*v.x + m[5]*v.y + m[9]*v.z  + m[13];
+        const cz = m[2]*v.x + m[6]*v.y + m[10]*v.z + m[14];
+        const cw = m[3]*v.x + m[7]*v.y + m[11]*v.z + m[15];
+        if (cw > 0) {
+          P[i] = {
+            px: (cx / cw *  0.5 + 0.5) * rw + TX * rw,
+            py: (cy / cw * -0.5 + 0.5) * rh - TY * rh,
+            z:  cz / cw, r: v.r, g: v.g, b: v.b,
+          };
+        }
+      }
+      const px = new Uint8ClampedArray(rw * rh * 4);
+      const zbuf = new Float32Array(rw * rh); zbuf.fill(Infinity);
+      const edge = (ax, ay, bx, by, cx, cy) =>
+        (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      // Lighting: keep the game's baked vertex colours and apply ONE wrapped
+      // directional light on top.
+      //
+      // RS bakes a small per-face palette into each model (5-8 shades per key),
+      // but it is flat per triangle -- e.g. gold_corner's whole silver underside
+      // is the single value rgb(69,67,64). The built-in map is clearly not
+      // drawing that flat: its greys spread 72..101 around a median of 85 where
+      // the raw palette entry sits at 67. So the colours alone are too dark and
+      // too flat; they need a light, just not the one we had.
+      //
+      // WRAPPED (0.5 + 0.5*dot), not max(0, dot) and not abs(dot):
+      //   - abs() -- the old shader -- shades a downward-facing face exactly
+      //     like an upward-facing one, destroying the top/bottom contrast it
+      //     existed to create, and drove faces perpendicular to the light to
+      //     near-black, which is what cut the dark gash across every icon.
+      //   - wrapped never reaches zero, so a face turned away from the light
+      //     dims to BASE instead of going black. That also makes it robust to
+      //     the inconsistent winding the old comment worried about: a flipped
+      //     normal only moves a face within [BASE, BASE+RANGE], never to black.
+      //
+      // The light must be OFF-AXIS. A light straight overhead (0,1,0) gives
+      // every vertical face -- front, side, back -- dot == 0 and therefore an
+      // identical shade, which flattens the key completely: it rendered the
+      // whole silver front at a dead-flat luminance 88 where the game spreads
+      // 72..101. Azimuth 225 / elevation 45 was fitted by sweeping light
+      // directions against the built-in map's grey distribution on both corner
+      // keys; it scores best and lifts our grey spread from 0 to ~23.
+      const LIGHT = { x: -0.5, y: 0.71, z: -0.5 };   // above, and to one side
+      const BASE = 0.70, RANGE = 0.85;               // shade spans 0.70..1.55
+      const llen = Math.hypot(LIGHT.x, LIGHT.y, LIGHT.z) || 1;
+      const lx = LIGHT.x/llen, ly = LIGHT.y/llen, lz = LIGHT.z/llen;
+      for (let t = 0; t + 2 < verts.length; t += 3) {
+        const v0 = P[t], v1 = P[t+1], v2 = P[t+2];
+        if (!v0 || !v1 || !v2) continue;
+        const area = edge(v0.px, v0.py, v1.px, v1.py, v2.px, v2.py);
+        if (area === 0) continue;
+        // Face normal from the ORIGINAL model verts, not projected screen space.
+        const a = verts[t], b = verts[t+1], c = verts[t+2];
+        const nx = (b.y-a.y)*(c.z-a.z) - (b.z-a.z)*(c.y-a.y);
+        const ny = (b.z-a.z)*(c.x-a.x) - (b.x-a.x)*(c.z-a.z);
+        const nz = (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x);
+        const nlen = Math.hypot(nx, ny, nz) || 1;
+        const dot = (nx*lx + ny*ly + nz*lz) / nlen;
+        const shade = BASE + RANGE * (0.5 + 0.5*dot);
+        // Clamped to the raster bounds, which also makes the off-frame half of
+        // the mesh free: RS reuses the ground-item model, which is two copies of
+        // the key, and the captured MVP frames one and pushes the other out of
+        // view (measured: exactly 50% of verts / 68 of 136 triangles land off
+        // frame). Those triangles collapse to maxx < minx and never enter the
+        // pixel loop, so we only pay for what is visible.
+        const minx = Math.max(0, Math.floor(Math.min(v0.px, v1.px, v2.px)));
+        const maxx = Math.min(rw - 1, Math.floor(Math.max(v0.px, v1.px, v2.px)));
+        const miny = Math.max(0, Math.floor(Math.min(v0.py, v1.py, v2.py)));
+        const maxy = Math.min(rh - 1, Math.floor(Math.max(v0.py, v1.py, v2.py)));
+        for (let y = miny; y <= maxy; y++) {
+          for (let x = minx; x <= maxx; x++) {
+            const fx = x + 0.5, fy = y + 0.5;
+            const w0 = edge(v1.px, v1.py, v2.px, v2.py, fx, fy) / area;
+            const w1 = edge(v2.px, v2.py, v0.px, v0.py, fx, fy) / area;
+            const w2 = edge(v0.px, v0.py, v1.px, v1.py, fx, fy) / area;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            const z = w0*v0.z + w1*v1.z + w2*v2.z;
+            const off = y * rw + x;
+            if (z >= zbuf[off]) continue;
+            zbuf[off] = z;
+            const po = off * 4;
+            // Barycentric blend of the baked colours, scaled by the face's
+            // shade. Uint8ClampedArray clamps on assignment, so a shade above
+            // 1 can brighten toward 255 without wrapping.
+            px[po]     = (w0*v0.r + w1*v1.r + w2*v2.r) * shade;
+            px[po + 1] = (w0*v0.g + w1*v1.g + w2*v2.g) * shade;
+            px[po + 2] = (w0*v0.b + w1*v1.b + w2*v2.b) * shade;
+            px[po + 3] = 255;
+          }
+        }
+      }
+      // Box-filter the SSxSS grid down to one output pixel. This is the step
+      // that was previously delegated to CSS, and doing it here is the whole
+      // point of supersampling: coverage above is a hard in/out test, so every
+      // triangle edge in the raster is binary-jagged and averaging the subpixels
+      // is the ONLY antialiasing in the pipeline. Bilinear CSS minification
+      // sampled ~4 of our 16 subpixels and the jaggies survived; this uses all
+      // of them and is deterministic rather than CEF-version dependent.
+      //
+      // Colour is weighted by alpha (premultiplied) before averaging. Outside
+      // the mesh we leave RGB 0,0,0 with alpha 0, so a naive RGB average would
+      // drag that black into every edge pixel and fringe the silhouette dark.
+      // Averaging only covered subpixels keeps edge colour true and puts the
+      // coverage into alpha, where it belongs.
+      const out = new Uint8ClampedArray(outW * outH * 4);
+      const NSUB = SS * SS;
+      for (let y = 0; y < outH; y++) {
+        for (let x = 0; x < outW; x++) {
+          let sr = 0, sg = 0, sb = 0, sa = 0;
+          for (let sy = 0; sy < SS; sy++) {
+            let o = ((y*SS + sy) * rw + x*SS) * 4;
+            for (let sx = 0; sx < SS; sx++, o += 4) {
+              const a = px[o + 3];
+              if (a === 0) continue;
+              sr += px[o] * a; sg += px[o + 1] * a; sb += px[o + 2] * a; sa += a;
+            }
+          }
+          if (sa === 0) continue;          // fully transparent; leave zeroed
+          const q = (y*outW + x) * 4;
+          out[q]     = sr / sa;
+          out[q + 1] = sg / sa;
+          out[q + 2] = sb / sa;
+          out[q + 3] = sa / NSUB;          // 255 * covered/NSUB
+        }
+      }
+      return new ImageData(out, outW, outH);
+    };
+    const atlasCanvas = (img, targetWidth, smooth) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width; canvas.height = img.height;
+      canvas.style.width = targetWidth + "px";
+      canvas.style.height = "auto";
+      // Smooth for supersampled meshes (native >> target). Pixelated for
+      // native-size sprites like the base/boss/door atlases so they don't blur
+      // when upscaled.
+      canvas.style.imageRendering = smooth ? "auto" : "pixelated";
+      canvas.getContext("2d").putImageData(img, 0, 0);
+      return canvas;
+    };
+    const keyCanvas = (name) => {
+      const img = keyAtlasImageData[name.toLowerCase()];
+      return img ? atlasCanvas(img, 30, true) : null;   // smooth (supersampled)
+    };
+    const imgCanvas = (name, targetWidth) => {
+      const img = imgAtlasImageData[name];
+      return img ? atlasCanvas(img, targetWidth, false) : null;   // pixelated
+    };
+    // Skill door: try the img_signatures atlas first (the real skill icon),
+    // fall back to a 2-letter badge if the atlas hasn't arrived.
+    const doorBadge = (name) => {
+      const c = imgCanvas(name, 22);
+      if (c) { c.classList.add("door-icon"); return c; }
+      const b = document.createElement("div");
+      b.className = "overlay-badge";
+      b.style.background = "#c0a058";
+      b.textContent = name.slice(5, 7);
+      b.title = name.slice(5);
+      return b;
+    };
+    // Top-right markers - saturated 8x8 squares for gatestone + PGT tokens.
+    const MARKER_COLORS = {
+      PGT_GREEN:       "#00d060",
+      PGT_RED:         "#e02020",
+      GROUP_GATESTONE: "#2080ff",
+    };
+    const makeMarker = (name) => {
+      const m = document.createElement("div");
+      m.className = "marker";
+      m.style.background = MARKER_COLORS[name] || "#666";
+      m.title = name;
+      return m;
+    };
+    // Player markers: cataloged icon name -> fixed cell slot (1 top-left,
+    // 2 top-right, 3 bottom-left, 4 bottom-middle, 5 bottom-right). Drawn
+    // from the img_signatures atlas; a numbered glyph is the fallback until
+    // the icon lands in the atlas. THREE/FOUR/FIVE are pre-wired but not yet
+    // cataloged.
+    const PLAYER_SLOTS = {
+      PLAYER_RED:   1,
+      PLAYER_TWO:   2,
+      PLAYER_THREE: 3,
+      PLAYER_FOUR:  4,
+      PLAYER_FIVE:  5,
+    };
+
+    // Parse doors from a room-body name into a set of cardinal directions.
+    const parseDoors = (name) => {
+      const doors = { n: false, s: false, e: false, w: false };
+      if (name === "4WAY") { doors.n = doors.s = doors.e = doors.w = true; return doors; }
+      if (name.startsWith("DE_")) {
+        const dir = name.slice(3).toLowerCase();
+        if (dir.startsWith("north")) doors.n = true;
+        else if (dir.startsWith("south")) doors.s = true;
+        else if (dir.startsWith("east"))  doors.e = true;
+        else if (dir.startsWith("west"))  doors.w = true;
+        return doors;
+      }
+      if (name.startsWith("2WAY_") || name.startsWith("3WAY_")) {
+        const parts = name.split("_")[1];
+        for (const c of parts) {
+          if (c === "N") doors.n = true;
+          if (c === "S") doors.s = true;
+          if (c === "E") doors.e = true;
+          if (c === "W") doors.w = true;
+        }
+        return doors;
+      }
+      if (name.startsWith("UNOPENED_")) {
+        const dir = name.split("_")[1];
+        if (dir === "NORTH") doors.n = true;
+        if (dir === "SOUTH") doors.s = true;
+        if (dir === "EAST")  doors.e = true;
+        if (dir === "WEST")  doors.w = true;
+        return doors;
+      }
+      return doors;
+    };
+    // Draw actual hallway slabs that extend past the cell edge into the grid
+    // gap, so adjacent rooms visually connect. Each corridor inherits the
+    // cell's background colour (body/base/boss/unopened) via CSS `inherit`.
+    const drawDoors = (cell, doors) => {
+      const push = (side) => {
+        const d = document.createElement("div");
+        d.className = "corridor " + side;
+        cell.appendChild(d);
+      };
+      if (doors.n) push("n");
+      if (doors.s) push("s");
+      if (doors.e) push("e");
+      if (doors.w) push("w");
+    };
+
+    // Parity classification. Trust the Lua-side value: base and boss are
+    // forced crit there, propagation flows the rest. Empty cells get no border.
+    const parityClass = (kind, parity) => {
+      if (!kind) return "";
+      if (parity === "bonus") return "par-bonus";
+      if (parity === "crit")  return "par-crit";
+      return "par-unknown";
+    };
+    const bodyKind = (names) => {
+      for (const n of names) if (n === "ICON_BASE") return "base";
+      for (const n of names) if (n === "ICON_BOSS") return "boss";
+      for (const n of names) if (n.startsWith("UNOPENED_")) return "unopened";
+      for (const n of names) {
+        if (n.startsWith("2WAY_") || n.startsWith("3WAY_") ||
+            n === "4WAY" || n.startsWith("DE_")) return "body";
+      }
+      return "";
+    };
+
+    const render = (rooms) => {
+      let rendered = 0, errors = [];
+      lastRooms = rooms;
+      for (const c of cells) {
+        c.className = "cell";
+        c.innerHTML = "";
+      }
+      for (const r of rooms) {
+        try {
+        if (r.gx < 0 || r.gx > 7 || r.gz < 0 || r.gz > 7) continue;
+        const cell = cells[r.gz * 8 + r.gx];
+        const kind = bodyKind(r.images);
+        if (kind) cell.classList.add(kind);
+        const pc = parityClass(kind, r.parity);
+        if (pc) cell.classList.add(pc);
+        // Cell background glow when we hold a key that opens this room.
+        // Also drop-shadow flag for ANY key-blocked room (whether held or not).
+        if (kind === "unopened") {
+          let hasKeyblock = false, canOpen = false;
+          for (const n of r.images) {
+            const lower = n.toLowerCase();
+            const isKey = /^([a-z]+)_([a-z]+)$/.test(lower)
+              && COLORS[lower.split("_")[0]] && SHAPE_NAMES.has(lower.split("_")[1]);
+            if (isKey) {
+              hasKeyblock = true;
+              if (heldKeys.has(lower)) canOpen = true;
+            }
+          }
+          if (hasKeyblock) cell.classList.add("has-keyblock");
+          if (canOpen)     cell.classList.add("key-held");
+        }
+
+        // Find the room-body name so we can draw its doors.
+        let body = null;
+        const overlays = [];
+        for (const n of r.images) {
+          if (n.startsWith("UNOPENED_") || n.startsWith("2WAY_") ||
+              n.startsWith("3WAY_") || n === "4WAY" || n.startsWith("DE_") ||
+              n === "ICON_BASE" || n === "ICON_BOSS") {
+            if (!body) body = n;
+          } else {
+            overlays.push(n);
+          }
+        }
+        if (body) drawDoors(cell, parseDoors(body));
+        // Guardian door: unopened room with a "?" variant. Show a centered ?.
+        if (body && body.endsWith("_QUESTION")) {
+          const q = document.createElement("div");
+          q.className = "unopened-question";
+          q.textContent = "?";
+          cell.appendChild(q);
+        }
+
+        // Overlay routing:
+        //   fixed slots: PLAYER_* icons (1 TL, 2 TR, 3 BL, 4 BM, 5 BR),
+        //                topmost layer in the cell
+        //   centre     : PGT_* + GROUP_GATESTONE (absolute, GGS above PGTs),
+        //                above keys/doors but below player icons
+        //   centre     : keys + DOOR_* + base/boss icons
+        // ICON_BASE / ICON_BOSS are room-body types but ALSO get rendered as
+        // centre overlays so the actual icon is visible on top of the tinted
+        // background. Rescan the full image list rather than looking at `body`
+        // because a passage body (2WAY_ES etc.) can already claim the body slot
+        // when the room has one.
+        const markerNames = [];
+        const playerNames = [];
+        const mainOverlays = [];
+        for (const n of r.images) {
+          if (n === "ICON_BASE" || n === "ICON_BOSS") mainOverlays.push(n);
+        }
+        const pgtGgsNames = [];
+        for (const n of overlays) {
+          if (n.startsWith("PLAYER_")) {
+            playerNames.push(n);
+          } else if (n === "GROUP_GATESTONE" || n.startsWith("PGT_")) {
+            // Rendered as an overlay layer on top of everything else so it
+            // stays centred and above any key/door icons in the same cell.
+            pgtGgsNames.push(n);
+          } else {
+            mainOverlays.push(n);
+          }
+        }
+        if (markerNames.length) {
+          const markers = document.createElement("div");
+          markers.className = "markers";
+          for (const n of markerNames) markers.appendChild(makeMarker(n));
+          cell.appendChild(markers);
+        }
+        if (playerNames.length) {
+          const players = document.createElement("div");
+          players.className = "player-icons";
+          for (const n of playerNames) {
+            const slot = PLAYER_SLOTS[n] || 1;
+            const canv = imgCanvas(n, 16);
+            if (canv) {
+              canv.classList.add("pslot-" + slot);
+              canv.title = n;
+              players.appendChild(canv);
+            } else {
+              const g = document.createElement("span");
+              g.className = "player-num pslot-" + slot;
+              g.textContent = String(slot);
+              g.title = n;
+              players.appendChild(g);
+            }
+          }
+          cell.appendChild(players);
+        }
+        if (mainOverlays.length) {
+          const wrap = document.createElement("div");
+          wrap.className = "overlays";
+          for (const n of mainOverlays) {
+            if (n === "ICON_BASE" || n === "ICON_BOSS") {
+              const c = imgCanvas(n, 24);
+              if (c) {
+                if (n === "ICON_BASE") c.classList.add("base-icon");
+                wrap.appendChild(c);
+                continue;
+              }
+            }
+            if (n.startsWith("DOOR_")) { wrap.appendChild(doorBadge(n)); continue; }
+            // Key: atlas canvas only. If the atlas hasn't landed yet, fall
+            // through to the labeled badge -- no SVG placeholder.
+            const canv = keyCanvas(n);
+            if (canv) { wrap.appendChild(canv); continue; }
+            const b = document.createElement("div");
+            b.className = "overlay-badge";
+            b.style.background = "#888"; b.style.color = "#fff";
+            b.textContent = n.slice(0, 2);
+            b.title = n;
+            wrap.appendChild(b);
+          }
+          cell.appendChild(wrap);
+        }
+        // Top-layer PGT/GGS icons: absolute slots over the cell contents.
+        // A lone gatestone sits dead centre; when several share the room the
+        // PGTs shift slightly to the sides while GGS keeps the centre and is
+        // appended last so it stacks on top.
+        if (pgtGgsNames.length) {
+          const top = document.createElement("div");
+          top.className = "top-icons";
+          pgtGgsNames.sort((a, b) =>
+            (a === "GROUP_GATESTONE" ? 1 : 0) - (b === "GROUP_GATESTONE" ? 1 : 0));
+          const crowded = pgtGgsNames.length > 1;
+          for (const n of pgtGgsNames) {
+            let el = keyCanvas(n);
+            if (!el) {
+              el = document.createElement("div");
+              el.className = "overlay-badge";
+              el.style.background = "#888"; el.style.color = "#fff";
+              el.textContent = n.slice(0, 3);
+            }
+            el.title = n;
+            if (n === "GROUP_GATESTONE") el.classList.add("tslot-ggs");
+            else if (crowded) el.classList.add(n === "PGT_RED" ? "tslot-red" : "tslot-green");
+            top.appendChild(el);
+          }
+          cell.appendChild(top);
+        }
+        rendered += 1;
+        } catch (e) {
+          errors.push(`${r.gx},${r.gz}:${e.message||e}`);
+        }
+      }
+      if (errors.length) {
+        fetch("https://bolt-api/send-message",
+          { method: "POST", body: `render_err:rendered=${rendered} errs=${errors.slice(0,3).join(";")}` })
+          .catch(() => {});
+      }
+    };
+
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      let c = e.data.content;
+      if (c instanceof Uint8Array) c = new TextDecoder().decode(c);
+      else if (c instanceof ArrayBuffer) c = new TextDecoder().decode(new Uint8Array(c));
+      if (typeof c !== "string") return;
+      if (c.startsWith("rooms:")) {
+        try { render(JSON.parse(c.slice(6))); } catch (_) {}
+        return;
+      }
+      // dead:<reason>  -- empty reason means the floor is alive again (new
+      // floor). The grid freezes on death, so without this banner it goes on
+      // looking like a live map forever.
+      if (c.startsWith("dead:")) {
+        const reason = c.slice(5);
+        const bar   = document.querySelector(".title-bar");
+        const title = document.getElementById("hdr-title");
+        const grid  = document.querySelector(".grid");
+        if (bar) { bar.classList.toggle("dead", !!reason); bar.title = reason || ""; }
+        if (title) title.textContent = reason ? "FLOOR DEAD (see floor_dead.txt)" : "DG Map";
+        if (grid) grid.classList.toggle("dead", !!reason);
+        return;
+      }
+      // hdr:<rpm>|<open / crit-open>[|<sync-status>|<room-total>] -- left =
+      // rooms/min, right = "opened / crit-opened" counts. Sync fields only
+      // present while the party-sync sidecar exists; absent -> badge hidden.
+      // Room total includes ourself (2 = us + one peer).
+      if (c.startsWith("hdr:")) {
+        const parts = c.slice(4).split("|");
+        const r = document.getElementById("hdr-rpm");
+        const k = document.getElementById("hdr-crit");
+        if (r) r.textContent = (parts[0] && parts[0] !== "-") ? parts[0] + " rpm" : "";
+        if (k) k.textContent = parts[1] ? parts[1] + " crit" : "";
+        const sy = document.getElementById("hdr-sync");
+        if (sy) {
+          const st = parts[2] || "";
+          if (!st) {
+            sy.style.display = "none";
+          } else {
+            const cls = (st === "connected") ? "connected"
+                      : (st === "connecting" || st === "boot" || st === "retrying") ? "pending"
+                      : "down";
+            sy.className = cls;
+            sy.style.display = "flex";
+            sy.title = "party sync: " + st;
+            sy.querySelector(".count").textContent = (st === "connected") ? (parts[3] || "0") : "";
+          }
+        }
+        return;
+      }
+      // held_keys:name1,name2 -- lowercase color_shape names currently in bag.
+      if (c.startsWith("held_keys:")) {
+        heldKeys = new Set(c.slice(10).split(",").filter(Boolean));
+        // Re-render current graph so the outline updates immediately.
+        if (lastRooms) { try { render(lastRooms); } catch (_) {} }
+        return;
+      }
+      // key_mesh:name|sw|sh|mvp16|pts  -- rasterise each key from its own
+      // captured mesh (icons.txt + icons_data.txt). Result populates the
+      // same keyAtlasImageData table the render path already consumes.
+      if (c.startsWith("key_mesh:")) {
+        for (const ln of c.slice(9).split("\n")) {
+          const parts = ln.split("|");
+          if (parts.length !== 5) continue;
+          const [name, swS, shS, mvpS, ptsS] = parts;
+          keyMeshRaw[name.toLowerCase()] = { sw: +swS, sh: +shS, mvp: mvpS, pts: ptsS };
+          const img = rasterizeMesh(+swS, +shS, mvpS, ptsS, name);
+          if (img) keyAtlasImageData[name.toLowerCase()] = img;
+        }
+        // Repaint so cells drawn before the atlas arrived pick up the new icons.
+        if (lastRooms) { try { render(lastRooms); } catch (_) {} }
+        return;
+      }
+      // shape_rot:{...}  -- persisted rotation table pushed from Lua (either
+      // from disk at open, or echoed from a keys-panel edit). Merge + repaint.
+      if (c.startsWith("shape_rot:")) {
+        try {
+          const incoming = JSON.parse(c.slice(10));
+          for (const s of Object.keys(incoming)) {
+            SHAPE_ROT[s] = Object.assign(
+              { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+              SHAPE_ROT[s] || {}, incoming[s]);
+          }
+          // Only re-rasterise the shapes that actually changed. A rotation edit
+          // touches one shape (8 colours of it), not all 66 keys, and the atlas
+          // raster is ~7x dearer now that it supersamples a 64px output -- which
+          // matters here because this fires on every drag of the tuning UI.
+          const touched = new Set(Object.keys(incoming));
+          for (const key of Object.keys(keyMeshRaw)) {
+            if (!touched.has(shapeOf(key))) continue;
+            const r = keyMeshRaw[key];
+            const img = rasterizeMesh(r.sw, r.sh, r.mvp, r.pts, key);
+            if (img) keyAtlasImageData[key] = img;
+          }
+          if (lastRooms) { try { render(lastRooms); } catch (_) {} }
+        } catch (_) {}
+        return;
+      }
+      // img_atlas: dg-map-tracker's own signatures (base, boss, doors, passages).
+      if (c.startsWith("img_atlas:")) {
+        for (const ln of c.slice(10).split("\n")) {
+          const parts = ln.split("|");
+          if (parts.length !== 4) continue;
+          const [name, w, h, hex] = parts;
+          imgAtlasImageData[name] = hexToImageData(+w, +h, hex);
+        }
+        if (lastRooms) { try { render(lastRooms); } catch (_) {} }
+        return;
+      }
+    });
+
+    // Ready handshake: messages Lua sends at browser-create (atlases, first
+    // state dump) can arrive before the listener above exists and get
+    // DROPPED -- with the Lua-side dedupe caches then blocking any re-send,
+    // a recreated panel stayed black until the map changed. Announcing
+    // readiness makes Lua re-ship atlases and reset its dedupe caches.
+    fetch("https://bolt-api/send-message", { method: "POST", body: "ready" }).catch(() => {});
+  </script>
+</body></html>

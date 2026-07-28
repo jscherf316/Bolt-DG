@@ -1,0 +1,6 @@
+{
+  "main": "main.lua",
+  "name": "DG Map Tracker",
+  "description": "Dungeoneering map tracker + debug overlays, with built-in line-draw / key-pointer overlay and floor timer.",
+  "version": "0.3"
+}

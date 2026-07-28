@@ -1,0 +1,83 @@
+<!-- Network sidecar for party sync. Rendered in an invisible 2x2 embedded
+     browser; its only job is bridging plugin Lua <-> the WebSocket relay
+     (the Lua sandbox has no sockets; plugin pages do).
+
+     Lua -> page (sendmessage):
+       cfg:{"url":"ws://...","room":"...","name":"..."}   connect / reconfigure
+       tx:<json>                                          forward event to room
+       stop                                               disconnect
+     page -> Lua (POST bolt-api/send-message):
+       st:{"s":"boot|connected|closed|retrying|stopped|error",...}
+       rx:<json>                                          one frame from a peer
+-->
+<script>
+"use strict";
+const send = (body) =>
+  fetch("https://bolt-api/send-message", { method: "POST", body }).catch(() => {});
+const status = (s, extra) =>
+  send("st:" + JSON.stringify(Object.assign({ s: s }, extra || {})));
+
+let ws = null;        // live socket (or null)
+let cfg = null;       // current config (null = deliberately stopped)
+let backoff = 1000;   // reconnect delay, doubles to 30s cap
+let timer = null;
+
+function connect() {
+  if (!cfg || ws) return;
+  let sock;
+  try { sock = new WebSocket(cfg.url); }
+  catch (err) { status("error", { err: String(err) }); scheduleRetry(); return; }
+  ws = sock;
+  sock.onopen = () => {
+    backoff = 1000;
+    sock.send(JSON.stringify({ t: "join", room: cfg.room }));
+  };
+  sock.onmessage = (e) => {
+    if (typeof e.data !== "string") return;
+    // 'joined' doubles as the connected signal (carries the peer count)
+    let obj = null;
+    try { obj = JSON.parse(e.data); } catch (err) {}
+    if (obj && obj.t === "joined") status("connected", { peers: obj.peers });
+    send("rx:" + e.data);
+  };
+  sock.onclose = () => {
+    if (ws === sock) ws = null;
+    status("closed");
+    scheduleRetry();
+  };
+  sock.onerror = () => { try { sock.close(); } catch (err) {} };
+}
+
+function scheduleRetry() {
+  if (!cfg || timer) return;
+  status("retrying", { in_ms: backoff });
+  timer = setTimeout(() => { timer = null; connect(); }, backoff);
+  backoff = Math.min(backoff * 2, 30000);
+}
+
+function disconnect() {
+  if (timer) { clearTimeout(timer); timer = null; }
+  if (ws) { const w = ws; ws = null; try { w.close(); } catch (err) {} }
+}
+
+window.addEventListener("message", (e) => {
+  if (!e.data || e.data.type !== "pluginMessage") return;
+  let c = e.data.content;
+  if (c instanceof Uint8Array) c = new TextDecoder().decode(c);
+  else if (c instanceof ArrayBuffer) c = new TextDecoder().decode(new Uint8Array(c));
+  if (c.slice(0, 4) === "cfg:") {
+    disconnect();
+    try { cfg = JSON.parse(c.slice(4)); } catch (err) { cfg = null; }
+    backoff = 1000;
+    connect();
+  } else if (c.slice(0, 3) === "tx:") {
+    if (ws && ws.readyState === 1) ws.send(c.slice(3));
+  } else if (c === "stop") {
+    cfg = null;
+    disconnect();
+    status("stopped");
+  }
+});
+
+status("boot");
+</script>

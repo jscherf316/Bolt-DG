@@ -1,0 +1,564 @@
+<!doctype html>
+<html><head><style>
+  :root {
+    --bg: #3e352a;
+    --bg-alt: #4b402f;
+    --border: #6b5b3f;
+    --border-strong: #967a4a;
+    --text: #f0d493;
+    --text-dim: #b8a17a;
+    --text-faint: #8a7454;
+    --accent: #ffcf6b;
+    --cell-empty: #2a231a;
+    --cell-seen: #4b402f;
+    --par-bonus: #909090;
+    --par-crit: #ff5050;
+  }
+  html, body { margin: 0; padding: 0; background: transparent; color: var(--text);
+    font-family: "Trebuchet MS", -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; height: 100%; user-select: none; }
+  html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+  .card {
+    width: 100%; height: 100%; box-sizing: border-box;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    display: flex; flex-direction: column;
+  }
+  .header {
+    padding: 6px 10px;
+    cursor: move;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #4b402f 0%, #3e352a 100%);
+    flex: none;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .title { font-size: 12px; font-weight: 700; color: var(--accent);
+    letter-spacing: 0.4px; text-transform: uppercase; }
+  .sub { color: var(--text-dim); font-size: 11px; margin-left: auto; }
+  .board {
+    padding: 6px;
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 60px 1fr;
+    grid-template-rows: 22px 1fr;
+    gap: 3px;
+  }
+  .col-hdr, .row-hdr {
+    display: grid;
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    align-items: center;
+    text-transform: uppercase;
+  }
+  .col-hdr { grid-template-columns: repeat(8, 1fr); grid-column: 2; grid-row: 1; }
+  .row-hdr { grid-template-rows: repeat(8, 1fr); grid-column: 1; grid-row: 2; }
+  .grid {
+    grid-column: 2; grid-row: 2;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    gap: 2px;
+    min-height: 0; min-width: 0;
+  }
+  .cell {
+    background: var(--cell-empty);
+    border: 2px solid transparent;
+    border-radius: 3px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 1px;
+    overflow: hidden;
+    min-width: 0; min-height: 0;
+    opacity: 0.28;                         /* dim by default = not seen */
+    position: relative;
+  }
+  .cell.seen  { opacity: 1; background: var(--cell-seen); }
+  .cell.par-bonus   { border-color: var(--par-bonus); }
+  .cell.par-crit    { border-color: var(--par-crit); }
+  .cell.missing { background: transparent; opacity: 0.08; }
+  .cell canvas {
+    image-rendering: auto;
+    max-width: 95%;
+    max-height: 55%;
+  }
+  .cell .coords {
+    font-size: 12px;
+    line-height: 1.1;
+    color: var(--text-dim);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+  }
+  .cell .coords b { color: var(--text); font-weight: 700; }
+  .preview-btn {
+    margin-left: 8px; padding: 2px 8px;
+    background: var(--bg-alt); color: var(--text);
+    border: 1px solid var(--border); border-radius: 3px;
+    font-size: 11px; cursor: pointer;
+  }
+  .preview-btn:hover { background: var(--bg-hover); }
+  .preview-btn.active { background: var(--accent); color: #1a130a; border-color: var(--accent); }
+  /* Preview mode: unpaint dim + parity border on every cell. */
+  .board.preview .cell { opacity: 1 !important; border-color: transparent !important; }
+
+  .col-hdr > div { cursor: pointer; user-select: none; }
+  .col-hdr > div:hover { color: var(--accent); }
+
+  .rot-editor {
+    position: absolute; z-index: 20;
+    background: var(--bg); border: 1px solid var(--border-strong);
+    border-radius: 4px; padding: 8px 10px;
+    font-size: 12px; color: var(--text);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    display: none;
+  }
+  .rot-editor.open { display: block; }
+  .rot-editor h4 { margin: 0 0 6px 0; font-size: 12px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.4px; }
+  .rot-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .rot-row label { width: 40px; color: var(--text-dim); text-transform: uppercase; }
+  .rot-row .val { min-width: 44px; text-align: right;
+    font-variant-numeric: tabular-nums; color: var(--text); }
+  .rot-btn {
+    width: 22px; height: 20px;
+    background: var(--bg-alt); color: var(--text);
+    border: 1px solid var(--border); border-radius: 3px;
+    font-size: 13px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .rot-btn:hover { background: var(--bg-hover); }
+  .rot-close {
+    position: absolute; top: 4px; right: 6px;
+    background: none; border: none; color: var(--text-dim);
+    font-size: 14px; cursor: pointer; padding: 0; line-height: 1;
+  }
+  .rot-close:hover { color: var(--text); }
+</style></head><body>
+  <div class="card">
+    <div class="header" id="header">
+      <span class="title">DG Keys</span>
+      <span class="sub" id="sub">0 / 63 seen</span>
+      <button class="preview-btn" id="preview-btn" title="Show all keys, ignore parity">Preview</button>
+    </div>
+    <div class="board" id="board">
+      <div class="col-hdr" id="col-hdr"></div>
+      <div class="row-hdr" id="row-hdr"></div>
+      <div class="grid" id="grid"></div>
+    </div>
+    <div class="rot-editor" id="rot-editor">
+      <button class="rot-close" id="rot-close" title="Close">x</button>
+      <h4 id="rot-title">shape</h4>
+      <div class="rot-row"><label>Pitch</label>
+        <button class="rot-btn" data-axis="pitch" data-dir="-1">-</button>
+        <button class="rot-btn" data-axis="pitch" data-dir="1">+</button>
+        <span class="val" id="rot-pitch">0.00</span></div>
+      <div class="rot-row"><label>Yaw</label>
+        <button class="rot-btn" data-axis="yaw" data-dir="-1">-</button>
+        <button class="rot-btn" data-axis="yaw" data-dir="1">+</button>
+        <span class="val" id="rot-yaw">0.00</span></div>
+      <div class="rot-row"><label>Roll</label>
+        <button class="rot-btn" data-axis="roll" data-dir="-1">-</button>
+        <button class="rot-btn" data-axis="roll" data-dir="1">+</button>
+        <span class="val" id="rot-roll">0.00</span></div>
+      <div class="rot-row"><label>Zoom</label>
+        <button class="rot-btn" data-axis="scale" data-dir="-1">-</button>
+        <button class="rot-btn" data-axis="scale" data-dir="1">+</button>
+        <span class="val" id="rot-scale">1.00</span></div>
+      <div class="rot-row"><label>Pan</label>
+        <button class="rot-btn" data-axis="tx" data-dir="-1" title="Left">L</button>
+        <button class="rot-btn" data-axis="tx" data-dir="1"  title="Right">R</button>
+        <button class="rot-btn" data-axis="ty" data-dir="1"  title="Up">U</button>
+        <button class="rot-btn" data-axis="ty" data-dir="-1" title="Down">D</button>
+        <span class="val" id="rot-pan">0.00, 0.00</span></div>
+    </div>
+  </div>
+
+  <script>
+    // Row = color, Col = shape. Same order as the bundled signature list. gold_shield is
+    // canonically missing from the catalog.
+    const COLORS = ["blue", "purple", "green", "silver", "orange", "crimson", "gold", "yellow"];
+    const SHAPES = ["triangle", "rectangle", "wedge", "corner", "pentagon", "diamond", "shield", "crescent"];
+
+    const header = document.getElementById("header");
+    const grid = document.getElementById("grid");
+    const board = document.getElementById("board");
+    const previewBtn = document.getElementById("preview-btn");
+    previewBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      board.classList.toggle("preview");
+      previewBtn.classList.toggle("active", board.classList.contains("preview"));
+    });
+    // Don't let the button drag-move the panel.
+    previewBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+    const colHdr = document.getElementById("col-hdr");
+    const rowHdr = document.getElementById("row-hdr");
+    const sub = document.getElementById("sub");
+    header.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      fetch("https://bolt-api/start-reposition?h=0&v=0").catch(() => {});
+    });
+
+    // Three-char headers - readable enough to disambiguate all 8 colors + shapes.
+    const shortLabel = (s) => s.slice(0, 3).toUpperCase();
+    for (const s of SHAPES) {
+      const c = document.createElement("div"); c.textContent = shortLabel(s); c.title = s;
+      c.addEventListener("click", (e) => { e.stopPropagation(); openRotEditor(s, c); });
+      c.addEventListener("mousedown", (e) => e.stopPropagation());
+      colHdr.appendChild(c);
+    }
+
+    // Rotation editor: click a shape header to open, +/- buttons step 0.05.
+    const rotEditor = document.getElementById("rot-editor");
+    const rotTitle  = document.getElementById("rot-title");
+    const rotVals   = { pitch: document.getElementById("rot-pitch"),
+                        yaw:   document.getElementById("rot-yaw"),
+                        roll:  document.getElementById("rot-roll"),
+                        scale: document.getElementById("rot-scale"),
+                        pan:   document.getElementById("rot-pan") };
+    let currentShape = null;
+    const paintRotVals = () => {
+      if (!currentShape) return;
+      const r = SHAPE_ROT[currentShape] || { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 };
+      rotVals.pitch.textContent = (r.pitch || 0).toFixed(2);
+      rotVals.yaw  .textContent = (r.yaw   || 0).toFixed(2);
+      rotVals.roll .textContent = (r.roll  || 0).toFixed(2);
+      rotVals.scale.textContent = (r.scale == null ? 1 : r.scale).toFixed(2);
+      rotVals.pan  .textContent = (r.tx || 0).toFixed(2) + ", " + (r.ty || 0).toFixed(2);
+    };
+    const reRasterizeShape = (shape) => {
+      for (const name of Object.keys(meshRaw)) {
+        if (shapeOf(name) !== shape) continue;
+        const r = meshRaw[name];
+        const img = rasterizeMesh(r.sw, r.sh, r.mvp, r.pts, name);
+        if (img) { atlasImageData[name] = img;
+          if (cellByName[name]) renderAtlas(cellByName[name], name); }
+      }
+    };
+    const openRotEditor = (shape, anchorEl) => {
+      currentShape = shape;
+      rotTitle.textContent = shape;
+      paintRotVals();
+      // Position under the clicked header, clamped inside the panel.
+      const rect = anchorEl.getBoundingClientRect();
+      const cardRect = document.querySelector(".card").getBoundingClientRect();
+      rotEditor.classList.add("open");
+      const w = rotEditor.offsetWidth;
+      let left = rect.left - cardRect.left + rect.width / 2 - w / 2;
+      left = Math.max(4, Math.min(cardRect.width - w - 4, left));
+      rotEditor.style.left = left + "px";
+      rotEditor.style.top  = (rect.bottom - cardRect.top + 4) + "px";
+    };
+    document.getElementById("rot-close").addEventListener("click", (e) => {
+      e.stopPropagation();
+      rotEditor.classList.remove("open"); currentShape = null;
+    });
+    rotEditor.addEventListener("mousedown", (e) => e.stopPropagation());
+    for (const btn of rotEditor.querySelectorAll(".rot-btn")) {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!currentShape) return;
+        const axis = btn.dataset.axis;
+        const dir  = +btn.dataset.dir;
+        const step = axis === "scale" ? 0.1
+                   : (axis === "tx" || axis === "ty") ? 0.05
+                   : 0.05;
+        const r = SHAPE_ROT[currentShape] = SHAPE_ROT[currentShape] ||
+          { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 };
+        const cur = axis === "scale" ? (r.scale == null ? 1 : r.scale) : (r[axis] || 0);
+        r[axis] = Math.round((cur + dir * step) * 100) / 100;
+        // Clamp zoom to a sensible positive range so we never invert the mesh.
+        if (axis === "scale" && r.scale < 0.1) r.scale = 0.1;
+        paintRotVals();
+        reRasterizeShape(currentShape);
+        // Persist to disk + broadcast to the rooms panel via Lua.
+        try {
+          fetch("https://bolt-api/send-message",
+            { method: "POST", body: "save_shape_rot:" + JSON.stringify(SHAPE_ROT) })
+            .catch(() => {});
+        } catch (_) {}
+      });
+    }
+    // Merge a payload from Lua into SHAPE_ROT and repaint everything.
+    const applyShapeRot = (payload) => {
+      try {
+        const incoming = JSON.parse(payload);
+        for (const s of Object.keys(incoming)) {
+          SHAPE_ROT[s] = Object.assign(
+            { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+            SHAPE_ROT[s] || {}, incoming[s]);
+        }
+        // Re-rasterise every cataloged key and repaint.
+        for (const name of Object.keys(meshRaw)) {
+          const r = meshRaw[name];
+          const img = rasterizeMesh(r.sw, r.sh, r.mvp, r.pts, name);
+          if (img) { atlasImageData[name] = img;
+            if (cellByName[name]) renderAtlas(cellByName[name], name); }
+        }
+        if (currentShape) paintRotVals();
+      } catch (_) {}
+    };
+    for (const c of COLORS) {
+      const r = document.createElement("div"); r.textContent = shortLabel(c); r.title = c;
+      rowHdr.appendChild(r);
+    }
+
+    // Build the 8x8 grid with a placeholder cell per (color, shape) combo.
+    const cellByName = {};
+    for (let ci = 0; ci < 8; ci++) {
+      for (let si = 0; si < 8; si++) {
+        const color = COLORS[ci];
+        const shape = SHAPES[si];
+        const name = `${color}_${shape}`;
+        const d = document.createElement("div");
+        d.className = "cell";
+        d.dataset.name = name;
+        // gold_shield doesn't exist in the game so we visually mark it as void.
+        if (name === "gold_shield") d.classList.add("missing");
+        grid.appendChild(d);
+        cellByName[name] = d;
+      }
+    }
+
+    // Atlas cache: name -> ImageData built from RGBA hex sent by Lua.
+    const atlasImageData = {};
+    const meshRaw = {};       // name -> { sw, sh, mvp, pts } for re-rasterising
+    const renderAtlas = (cell, name) => {
+      // Clear anything except the coords block on re-render.
+      const oldC = cell.querySelector("canvas"); if (oldC) oldC.remove();
+      const img = atlasImageData[name];
+      if (!img) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.putImageData(img, 0, 0);
+      // Insert before the coords block so canvas is above.
+      cell.insertBefore(canvas, cell.firstChild);
+    };
+
+    const setCoords = (cell, found, lock) => {
+      let c = cell.querySelector(".coords");
+      if (!c) {
+        c = document.createElement("div");
+        c.className = "coords";
+        cell.appendChild(c);
+      }
+      const f = found ? `<b>${found}</b>` : "-";
+      const l = lock  ? `${lock}`         : "N/A";
+      c.innerHTML = `f:${f}<br>l:${l}`;
+    };
+
+    const applyStates = (states) => {
+      let seenCount = 0;
+      let heldCount = 0;
+      for (const name of Object.keys(cellByName)) {
+        const cell = cellByName[name];
+        if (name === "gold_shield") continue;
+        cell.classList.remove("seen", "par-bonus", "par-crit");
+        const st = states[name];
+        const mapSeen = st && (st.found || st.lock);
+        if (mapSeen) {
+          seenCount += 1;
+          cell.classList.add("seen");
+          if (st.parity === "bonus" || st.parity === "crit") {
+            cell.classList.add(`par-${st.parity}`);
+          }
+          setCoords(cell, st.found || null, st.lock || null);
+        } else {
+          setCoords(cell, null, null);
+        }
+        if (st && st.held) heldCount += 1;
+      }
+      sub.textContent = `${seenCount} / 63 seen - ${heldCount} held`;
+    };
+
+    // Decode hex to RGBA ImageData.
+    const hexToImageData = (w, h, hex) => {
+      const bytes = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+      }
+      return new ImageData(bytes, w, h);
+    };
+    // Rasterise a key from its captured mesh (icons_data.txt via Lua).
+    // Per-shape camera rotation. Adjust each row to taste.
+    const SHAPE_ROT = {
+      triangle:  { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      rectangle: { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      wedge:     { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      corner:    { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      pentagon:  { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+      diamond:   { pitch: 0, yaw: 0.1, roll: 0, scale: 1, tx: 0, ty: 0 },
+      shield:    { pitch: -0.5, yaw: 0.2, roll: 0, scale: 1, tx: 0, ty: 0 },
+      crescent:  { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 },
+    };
+    const shapeOf = (name) => {
+      const m = (name || "").toLowerCase().match(/^[^_]+_(.+)$/);
+      return m ? m[1] : "";
+    };
+    const rasterizeMesh = (sw, sh, mvpS, ptsS, name) => {
+      if (!(sw > 0 && sh > 0) || !mvpS || !ptsS) return null;
+      const m = mvpS.split(",").map(Number);
+      if (m.length !== 16) return null;
+      const rawVerts = [];
+      for (const chunk of ptsS.split(";")) {
+        const p = chunk.split(",").map(Number);
+        if (p.length !== 6) continue;
+        rawVerts.push({ x: p[0], y: p[1], z: p[2], r: p[3], g: p[4], b: p[5] });
+      }
+      if (rawVerts.length < 3) return null;
+      const rot = SHAPE_ROT[shapeOf(name)] || { pitch: 0, yaw: 0, roll: 0, scale: 1, tx: 0, ty: 0 };
+      const PITCH = rot.pitch, YAW = rot.yaw, ROLL = rot.roll || 0;
+      const SCALE = rot.scale == null ? 1 : rot.scale;
+      const TX = rot.tx || 0, TY = rot.ty || 0;   // screen-space offsets, unit = icon width/height
+      const cP = Math.cos(PITCH), sP = Math.sin(PITCH);
+      const cY = Math.cos(YAW),   sY = Math.sin(YAW);
+      const cR = Math.cos(ROLL),  sR = Math.sin(ROLL);
+      const verts = rawVerts.map((v) => {
+        const sx = v.x * SCALE, sy = v.y * SCALE, sz = v.z * SCALE;
+        const y1 = sy * cP - sz * sP;
+        const z1 = sy * sP + sz * cP;
+        const x2 =  sx * cY + z1 * sY;
+        const z2 = -sx * sY + z1 * cY;
+        const x3 = x2 * cR - y1 * sR;
+        const y3 = x2 * sR + y1 * cR;
+        return { x: x3, y: y3, z: z2, r: v.r, g: v.g, b: v.b };
+      });
+      // Rasterise a fixed-size atlas at SSx supersample and box-filter it down
+      // ourselves (below) rather than leaving the reduction to CSS bilinear,
+      // which undersamples past 2x. sw/sh is only the size RS drew at, not a
+      // resolution ceiling -- we hold the mesh. Must stay in sync with the
+      // rasteriser in rooms.html; see the longer note there.
+      const ATLAS_PX = 64;
+      const SS = 4;
+      const fit = ATLAS_PX / Math.max(sw, sh);
+      const outW = Math.max(1, Math.round(sw * fit));
+      const outH = Math.max(1, Math.round(sh * fit));
+      const rw = outW * SS, rh = outH * SS;
+      const P = new Array(verts.length);
+      for (let i = 0; i < verts.length; i++) {
+        const v = verts[i];
+        const cx = m[0]*v.x + m[4]*v.y + m[8]*v.z  + m[12];
+        const cy = m[1]*v.x + m[5]*v.y + m[9]*v.z  + m[13];
+        const cz = m[2]*v.x + m[6]*v.y + m[10]*v.z + m[14];
+        const cw = m[3]*v.x + m[7]*v.y + m[11]*v.z + m[15];
+        if (cw > 0) P[i] = {
+          // Screen-space translate: TX shifts right, TY shifts up. TY subtracts
+          // from py because smaller py = higher on the canvas.
+          px: (cx / cw *  0.5 + 0.5) * rw + TX * rw,
+          py: (cy / cw * -0.5 + 0.5) * rh - TY * rh,
+          z:  cz / cw, r: v.r, g: v.g, b: v.b,
+        };
+      }
+      const px = new Uint8ClampedArray(rw * rh * 4);
+      const zbuf = new Float32Array(rw * rh); zbuf.fill(Infinity);
+      const edge = (ax, ay, bx, by, cx, cy) =>
+        (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      // Keep the game's baked vertex colours and apply one wrapped directional
+      // light on top. Wrapped (0.5 + 0.5*dot) never reaches zero, so faces
+      // turned away dim instead of going black -- no dark gash, and a flipped
+      // normal only shifts a face within [BASE, BASE+RANGE]. Must stay in sync
+      // with the rasteriser in rooms.html; see the longer note there.
+      // Off-axis: a light straight overhead gives every vertical face dot == 0
+      // and one flat shade. Fitted against the built-in map; see rooms.html.
+      const LIGHT = { x: -0.5, y: 0.71, z: -0.5 };
+      const BASE = 0.70, RANGE = 0.85;
+      const llen = Math.hypot(LIGHT.x, LIGHT.y, LIGHT.z) || 1;
+      const lx = LIGHT.x/llen, ly = LIGHT.y/llen, lz = LIGHT.z/llen;
+      for (let t = 0; t + 2 < verts.length; t += 3) {
+        const v0 = P[t], v1 = P[t+1], v2 = P[t+2];
+        if (!v0 || !v1 || !v2) continue;
+        const area = edge(v0.px, v0.py, v1.px, v1.py, v2.px, v2.py);
+        if (area === 0) continue;
+        const a = verts[t], b = verts[t+1], c = verts[t+2];
+        const nx = (b.y-a.y)*(c.z-a.z) - (b.z-a.z)*(c.y-a.y);
+        const ny = (b.z-a.z)*(c.x-a.x) - (b.x-a.x)*(c.z-a.z);
+        const nz = (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x);
+        const nlen = Math.hypot(nx, ny, nz) || 1;
+        const dot = (nx*lx + ny*ly + nz*lz) / nlen;
+        const shade = BASE + RANGE * (0.5 + 0.5*dot);
+        const minx = Math.max(0, Math.floor(Math.min(v0.px, v1.px, v2.px)));
+        const maxx = Math.min(rw - 1, Math.floor(Math.max(v0.px, v1.px, v2.px)));
+        const miny = Math.max(0, Math.floor(Math.min(v0.py, v1.py, v2.py)));
+        const maxy = Math.min(rh - 1, Math.floor(Math.max(v0.py, v1.py, v2.py)));
+        for (let y = miny; y <= maxy; y++) {
+          for (let x = minx; x <= maxx; x++) {
+            const fx = x + 0.5, fy = y + 0.5;
+            const w0 = edge(v1.px, v1.py, v2.px, v2.py, fx, fy) / area;
+            const w1 = edge(v2.px, v2.py, v0.px, v0.py, fx, fy) / area;
+            const w2 = edge(v0.px, v0.py, v1.px, v1.py, fx, fy) / area;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            const z = w0*v0.z + w1*v1.z + w2*v2.z;
+            const off = y * rw + x;
+            if (z >= zbuf[off]) continue;
+            zbuf[off] = z;
+            const po = off * 4;
+            px[po]     = (w0*v0.r + w1*v1.r + w2*v2.r) * shade;
+            px[po + 1] = (w0*v0.g + w1*v1.g + w2*v2.g) * shade;
+            px[po + 2] = (w0*v0.b + w1*v1.b + w2*v2.b) * shade;
+            px[po + 3] = 255;
+          }
+        }
+      }
+      // Box-filter SSxSS -> 1, weighting colour by alpha so the transparent
+      // black outside the mesh cannot fringe the edges. Same as rooms.html.
+      const out = new Uint8ClampedArray(outW * outH * 4);
+      const NSUB = SS * SS;
+      for (let y = 0; y < outH; y++) {
+        for (let x = 0; x < outW; x++) {
+          let sr = 0, sg = 0, sb = 0, sa = 0;
+          for (let sy = 0; sy < SS; sy++) {
+            let o = ((y*SS + sy) * rw + x*SS) * 4;
+            for (let sx = 0; sx < SS; sx++, o += 4) {
+              const a = px[o + 3];
+              if (a === 0) continue;
+              sr += px[o] * a; sg += px[o + 1] * a; sb += px[o + 2] * a; sa += a;
+            }
+          }
+          if (sa === 0) continue;
+          const q = (y*outW + x) * 4;
+          out[q]     = sr / sa;
+          out[q + 1] = sg / sa;
+          out[q + 2] = sb / sa;
+          out[q + 3] = sa / NSUB;
+        }
+      }
+      return new ImageData(out, outW, outH);
+    };
+
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      let c = e.data.content;
+      if (c instanceof Uint8Array) c = new TextDecoder().decode(c);
+      else if (c instanceof ArrayBuffer) c = new TextDecoder().decode(new Uint8Array(c));
+      if (typeof c !== "string") return;
+      // key_mesh:name|sw|sh|mvp16|pts  -- rasterise from our own captured mesh.
+      if (c.startsWith("key_mesh:")) {
+        for (const ln of c.slice(9).split("\n")) {
+          const parts = ln.split("|");
+          if (parts.length !== 5) continue;
+          const [name, swS, shS, mvpS, ptsS] = parts;
+          if (!cellByName[name]) continue;
+          meshRaw[name] = { sw: +swS, sh: +shS, mvp: mvpS, pts: ptsS };
+          const img = rasterizeMesh(+swS, +shS, mvpS, ptsS, name);
+          if (img) { atlasImageData[name] = img; renderAtlas(cellByName[name], name); }
+        }
+        return;
+      }
+      // key_state:{"name":{"found":"x,y","lock":"x,y","parity":"unknown|bonus|crit"}, ...}
+      if (c.startsWith("key_state:")) {
+        try { applyStates(JSON.parse(c.slice(10))); } catch (_) {}
+        return;
+      }
+      // shape_rot:{...}  -- persisted per-shape rotation from disk (or from
+      // the rooms panel echoing our own edits back). Merge + repaint.
+      if (c.startsWith("shape_rot:")) {
+        applyShapeRot(c.slice(10));
+        return;
+      }
+    });
+  </script>
+</body></html>

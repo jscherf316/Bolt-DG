@@ -1,0 +1,30 @@
+# Skill door tier data. Used by the parity engine to determine whether a
+# skill-door-locked room is guaranteed CRIT, guaranteed BONUS, or ambiguous.
+#
+# Format:  skill|max|crit_lo|crit_hi|bonus_lo|bonus_hi
+#   skill        - matches the DOOR_<name> suffix, lowercase
+#   max          - highest current-game requirement possible
+#   crit_lo/hi   - inclusive range that GUARANTEES the locked room is CRIT
+#                  (0|0 = no crit range for this skill)
+#   bonus_lo/hi  - inclusive range that GUARANTEES the locked room is BONUS
+#
+# A requirement inside crit_lo..crit_hi implies crit; inside bonus_lo..bonus_hi
+# implies bonus. Overlap or gaps mean ambiguous and defer to other signals.
+runecrafting|110|106|110|1|100
+strength|120|106|120|1|110
+mining|110|106|110|1|100
+firemaking|110|106|110|1|100
+magic|120|106|120|1|105
+prayer|99|0|0|1|89
+woodcutting|110|106|110|1|100
+smithing|110|106|110|1|100
+crafting|110|106|110|1|100
+agility|99|0|0|1|89
+thieving|120|106|120|1|105
+summoning|99|0|0|1|89
+herblore|120|106|120|1|105
+farming|120|106|120|1|105
+construction|120|106|120|1|100
+divination|99|0|0|1|89
+invention|120|106|120|1|105
+archaeology|120|106|120|1|105
