@@ -1,6 +1,6 @@
 # Bolt-DG
 
-Bolt-launcher plugin for RuneScape 3 Dungeoneering.
+[Bolt-launcher](https://codeberg.org/Adamcake/Bolt) plugin for RuneScape 3 Dungeoneering.
 
 ## Features
 
