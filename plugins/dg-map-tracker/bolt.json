@@ -1,6 +1,6 @@
 {
   "main": "main.lua",
   "name": "DG Map Tracker",
-  "description": "Dungeoneering map tracker: live floor map with crit/bonus parity, key tracking, resource highlights, and line-draw key pointers.",
+  "description": "Dungeoneering map tracker, and other utils.",
   "version": "1.0"
 }
