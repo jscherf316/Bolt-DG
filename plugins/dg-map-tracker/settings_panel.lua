@@ -29,9 +29,17 @@ return function (deps)
     { key = "scan_range_tiles",     type = "int_stepper", default = 64, min = 32, max = 64, step = 16,
       label = "Scan range", category = "dev" },
     { key = "show_capture_zones",   type = "bool",        default = true,  label = "Show capture zones", category = "normal" },
+    -- Puzzle utilities render as their OWN top-level card (section field), a
+    -- sibling of the Settings card -- more solvers land here over time.
+    { key = "rc_tiles_enabled",     type = "bool",        default = true,  label = "Runecraft Tiles", category = "normal", section = "Puzzles" },
+    -- Line draw lives HERE now (2026-07-28) -- its standalone panel is gone.
+    -- line_style is a custom row: opacity/thickness steppers with the colour
+    -- swatch box to their right; it reads/writes line_color + line_thickness.
+    { key = "line_enabled",         type = "bool",        default = true,  label = "Enabled",      category = "normal", group = "line draw" },
+    { key = "line_path_mode",       type = "bool",        default = false, label = "Grid aligned", category = "normal", group = "line draw" },
+    { key = "line_style",           type = "line_style",  default = false, label = "",             category = "normal", group = "line draw" },
     { key = "rooms_panel_visible",  type = "bool",        default = true,  label = "Rooms",         category = "normal", group = "panels" },
-    { key = "keys_panel_visible",   type = "bool",        default = false, label = "Keys",          category = "normal", group = "panels" },
-    { key = "line_panel_visible",   type = "bool",        default = false, label = "Line Draw",     category = "normal", group = "panels" },
+    { key = "keys_panel_visible",   type = "bool",        default = false, label = "Keys - Click headers to customize", category = "normal", group = "panels" },
     { key = "tracker_panel_visible", type = "bool",       default = false, label = "Image Tracker", category = "dev",    group = "panels" },
     { key = "res_panel_visible",    type = "bool",        default = false, label = "Resources",     category = "dev",    group = "panels" },
     { key = "icon_panel_visible",   type = "bool",        default = false, label = "Icons",         category = "dev",    group = "panels" },
@@ -55,36 +63,54 @@ return function (deps)
     return true   -- controlling key not found: fail open, never hide silently
   end
 
+  -- Registry rows carry an optional `section` (default "Settings"); each
+  -- section renders as its own top-level card in the panel, so new areas
+  -- ("Puzzles", ...) are one field away instead of a page change.
+  local SECTIONS = { "Settings", "Puzzles" }
+
   local function build_state_json()
     local show_dev = SET.get("show_dev_tools", false) == true
-    local rows = {}
-    for _, s in ipairs(REGISTRY) do
-      if row_visible(s) then
-        local val = SET.get(s.key, s.default)
-        local r = { "{\"key\":" .. json_str(s.key) }
-        r[#r + 1] = ",\"type\":" .. json_str(s.type)
-        r[#r + 1] = ",\"label\":" .. json_str(s.label)
-        r[#r + 1] = ",\"category\":" .. json_str(s.category or "normal")
-        if s.group then r[#r + 1] = ",\"group\":" .. json_str(s.group) end
-        if s.type == "bool" then
-          r[#r + 1] = ",\"value\":" .. json_bool(val == true)
-        elseif s.type == "int" or s.type == "int_stepper" then
-          r[#r + 1] = ",\"value\":" .. tostring(tonumber(val) or s.default)
-        else
-          r[#r + 1] = ",\"value\":" .. json_str(val)
+    local cards = {}
+    for _, section in ipairs(SECTIONS) do
+      local rows = {}
+      for _, s in ipairs(REGISTRY) do
+        if (s.section or "Settings") == section and row_visible(s) then
+          local val = SET.get(s.key, s.default)
+          local r = { "{\"key\":" .. json_str(s.key) }
+          r[#r + 1] = ",\"type\":" .. json_str(s.type)
+          r[#r + 1] = ",\"label\":" .. json_str(s.label)
+          r[#r + 1] = ",\"category\":" .. json_str(s.category or "normal")
+          if s.group then r[#r + 1] = ",\"group\":" .. json_str(s.group) end
+          if s.type == "line_style" then
+            local c = SET.get("line_color", { 255, 70, 70, 255 })
+            local th = tonumber(SET.get("line_thickness", 32)) or 32
+            r[#r + 1] = string.format(
+              ",\"value\":{\"r\":%d,\"g\":%d,\"b\":%d,\"a\":%d,\"thickness\":%d}",
+              tonumber(c[1]) or 255, tonumber(c[2]) or 70,
+              tonumber(c[3]) or 70, tonumber(c[4]) or 255, th)
+          elseif s.type == "bool" then
+            r[#r + 1] = ",\"value\":" .. json_bool(val == true)
+          elseif s.type == "int" or s.type == "int_stepper" then
+            r[#r + 1] = ",\"value\":" .. tostring(tonumber(val) or s.default)
+          else
+            r[#r + 1] = ",\"value\":" .. json_str(val)
+          end
+          if s.type == "int_stepper" then
+            if s.min  then r[#r + 1] = ",\"min\":"  .. tostring(s.min)  end
+            if s.max  then r[#r + 1] = ",\"max\":"  .. tostring(s.max)  end
+            if s.step then r[#r + 1] = ",\"step\":" .. tostring(s.step) end
+          end
+          r[#r + 1] = "}"
+          rows[#rows + 1] = table.concat(r)
         end
-        if s.type == "int_stepper" then
-          if s.min  then r[#r + 1] = ",\"min\":"  .. tostring(s.min)  end
-          if s.max  then r[#r + 1] = ",\"max\":"  .. tostring(s.max)  end
-          if s.step then r[#r + 1] = ",\"step\":" .. tostring(s.step) end
-        end
-        r[#r + 1] = "}"
-        rows[#rows + 1] = table.concat(r)
+      end
+      if #rows > 0 then
+        cards[#cards + 1] = "{\"uuid\":\"self\",\"name\":" .. json_str(section)
+          .. ",\"settings\":[" .. table.concat(rows, ",") .. "]}"
       end
     end
     return "{\"showDevTools\":" .. json_bool(show_dev)
-      .. ",\"plugins\":[{\"uuid\":\"self\",\"name\":\"Settings\",\"settings\":["
-      .. table.concat(rows, ",") .. "]}]}"
+      .. ",\"plugins\":[" .. table.concat(cards, ",") .. "]}"
   end
 
   -- ---- panel window --------------------------------------------------------
@@ -120,6 +146,22 @@ return function (deps)
       -- "set:<uuid>:<key>:<value>" -- uuid is always "self" now but the page
       -- still sends it, so it is parsed and ignored.
       local key, value = msg:match("^set:[^:]+:([^:]+):(.*)$")
+      -- The line_style row writes two keys of its own, neither of which is a
+      -- registry row: line_color as "r,g,b,a" and line_thickness as an int.
+      if key == "line_color" then
+        local cr, cg, cb, ca = value:match("^(%d+),(%d+),(%d+),(%d+)$")
+        if cr then
+          SET.set("line_color",
+            { tonumber(cr), tonumber(cg), tonumber(cb), tonumber(ca) })
+          push_state()
+        end
+        return
+      end
+      if key == "line_thickness" then
+        SET.set("line_thickness", tonumber(value) or 32)
+        push_state()
+        return
+      end
       if key then
         for _, s in ipairs(REGISTRY) do
           if s.key == key then

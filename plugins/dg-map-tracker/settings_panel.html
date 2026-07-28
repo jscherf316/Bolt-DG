@@ -202,6 +202,25 @@
   .stepper button:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .empty { color: var(--text-faint); font-size: 13px; text-align: center; padding: 20px; }
+
+  /* Line-draw style row: opacity/thickness steppers on the left, the colour
+     swatches in a small bordered box to their right. */
+  .lstyle { display: flex; align-items: center; gap: 12px; margin-right: 12px; }
+  .lstyle .col { display: flex; flex-direction: column; gap: 6px; }
+  .lstyle .mini { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .lstyle .mlabel { font-size: 12px; color: var(--text-dim); }
+  .swbox {
+    background: var(--off);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    padding: 6px;
+    display: grid; grid-template-columns: repeat(4, 16px); gap: 5px;
+  }
+  .swbox .sw {
+    width: 16px; height: 16px; border-radius: 3px; cursor: pointer;
+    border: 1px solid rgba(0, 0, 0, 0.5); box-sizing: border-box;
+  }
+  .swbox .sw.sel { border: 2px solid #fff; }
 </style></head><body>
   <div class="card">
     <div class="header" id="header">
@@ -340,6 +359,56 @@
               wrap.appendChild(val);
               wrap.appendChild(plus);
               row.appendChild(wrap);
+            } else if (s.type === "line_style") {
+              // Custom row: steppers (opacity %, whole-number thickness) with
+              // the swatch box to their right. Writes line_color and
+              // line_thickness via its own set messages.
+              const v = s.value || {};
+              let color = [v.r | 0, v.g | 0, v.b | 0];
+              let alphaPct = Math.round(((v.a === undefined ? 255 : v.a) / 255) * 100);
+              let thick = Math.round(v.thickness || 32);
+              const wrap = document.createElement("div");
+              wrap.className = "lstyle";
+              const col = document.createElement("div");
+              col.className = "col";
+              const sendColor = () =>
+                send(`set:${p.uuid}:line_color:${color[0]},${color[1]},${color[2]},${Math.round(alphaPct * 255 / 100)}`);
+              const mkStep = (name, get, bump) => {
+                const mini = document.createElement("div"); mini.className = "mini";
+                const ml = document.createElement("span"); ml.className = "mlabel"; ml.textContent = name;
+                const st = document.createElement("span"); st.className = "stepper";
+                const minus = document.createElement("button"); minus.textContent = "-";
+                const val = document.createElement("span"); val.className = "val"; val.textContent = get();
+                const plus = document.createElement("button"); plus.textContent = "+";
+                [minus, plus].forEach((b) => b.addEventListener("mousedown", (e) => e.stopPropagation()));
+                minus.addEventListener("click", () => { bump(-1); val.textContent = get(); });
+                plus.addEventListener("click", () => { bump(1); val.textContent = get(); });
+                st.appendChild(minus); st.appendChild(val); st.appendChild(plus);
+                mini.appendChild(ml); mini.appendChild(st);
+                return mini;
+              };
+              col.appendChild(mkStep("Opacity",
+                () => alphaPct,
+                (d) => { alphaPct = Math.max(0, Math.min(100, alphaPct + d * 10)); sendColor(); }));
+              col.appendChild(mkStep("Thickness",
+                () => thick,
+                (d) => { thick = Math.max(1, Math.min(99, thick + d)); send(`set:${p.uuid}:line_thickness:${thick}`); }));
+              wrap.appendChild(col);
+              const box = document.createElement("div"); box.className = "swbox";
+              const PAL = [[255,0,0],[255,128,0],[255,255,0],[0,255,0],[0,255,255],[0,96,255],[255,0,255],[255,255,255]];
+              const sws = PAL.map((rgb) => {
+                const el = document.createElement("div"); el.className = "sw";
+                el.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+                el.addEventListener("mousedown", (e) => e.stopPropagation());
+                el.addEventListener("click", () => { color = rgb.slice(); mark(); sendColor(); });
+                box.appendChild(el);
+                return el;
+              });
+              const mark = () => sws.forEach((el, i) => el.classList.toggle("sel",
+                PAL[i][0] === color[0] && PAL[i][1] === color[1] && PAL[i][2] === color[2]));
+              mark();
+              wrap.appendChild(box);
+              row.appendChild(wrap);
             } else if (s.type === "party") {
               // Party code: fixed DGPARTY1..DGPARTY9, stepped with +/-. The
               // stored value is the full string; anything else (legacy custom
@@ -425,12 +494,18 @@
         body.appendChild(div);
       });
 
-      // Global row for the Show Dev Tools toggle.
+      // Global card for the Show Dev Tools toggle -- same head/body structure
+      // as every section card, so the styling matches.
       const global = document.createElement("div");
       global.className = "plugin";
+      const ghead = document.createElement("div");
+      ghead.className = "plugin-head";
       const h3 = document.createElement("h3");
       h3.textContent = "General";
-      global.appendChild(h3);
+      ghead.appendChild(h3);
+      global.appendChild(ghead);
+      const gbody = document.createElement("div");
+      gbody.className = "plugin-body";
       const row = document.createElement("div");
       row.className = "row";
       const label = document.createElement("span");
@@ -442,7 +517,8 @@
       sw.addEventListener("mousedown", (e) => e.stopPropagation());
       sw.addEventListener("click", () => send("toggle_dev_tools"));
       row.appendChild(sw);
-      global.appendChild(row);
+      gbody.appendChild(row);
+      global.appendChild(gbody);
       body.appendChild(global);
     };
 

@@ -30,7 +30,7 @@ local json = require("json")
 -- the deps were passed to the OLD cached function that ignored them). Clearing
 -- here makes each require below re-read its file.
 for _, _m in ipairs({ "parity", "examine", "icons", "sync", "resources",
-                      "settings_panel" }) do
+                      "settings_panel", "rc_tiles" }) do
   package.loaded[_m] = nil
 end
 
@@ -160,8 +160,8 @@ local SCAN_RANGE_VISIBLE     = SET.get("scan_range_visible",    false)
 -- function scope below -- specifically so the merge adds no new locals to the
 -- main chunk, which already sits just under Lua 5.1's 200-local ceiling (the
 -- reason SET itself exists). Populated fully by the do-once function further
--- down; only `visible` is needed this early, for the panel toggle in the poll.
-SET.line = { visible = SET.get("line_panel_visible", false), browser = nil }
+-- down. Its settings are rows in the settings panel; no window of its own.
+SET.line = {}
 
 -- Floor timer state (self-timed stopwatch; its own window). Same rationale as
 -- SET.line: everything hangs off one SET field so the feature adds no main-chunk
@@ -259,12 +259,16 @@ local function poll_settings()
   ICON_PANEL_VISIBLE     = apply_toggle("icon_panel_visible",    ICON_PANEL_VISIBLE,    SET.icons and SET.icons.open_panel, SET.icons and SET.icons.close_panel)
   ROOMS_PANEL_VISIBLE    = apply_toggle("rooms_panel_visible",   ROOMS_PANEL_VISIBLE,   open_rooms_browser,         close_rooms_browser)
   KEYS_PANEL_VISIBLE     = apply_toggle("keys_panel_visible",    KEYS_PANEL_VISIBLE,    open_keys_browser,          close_keys_browser)
-  SET.line.visible       = apply_toggle("line_panel_visible",    SET.line.visible,      SET.line.open,              SET.line.close)
-  -- Belt-and-braces state sync for the line panel: the push at open() can land
-  -- before the page exists, and its "refresh" reply raced often enough that the
-  -- panel showed stale toggles (bug list 2026-07-27). Re-push on the poll
-  -- cadence; push_state dedupes by body so a quiet panel costs nothing.
-  if SET.line.push_state then SET.line.push_state() end
+  -- Line Draw settings live in the settings panel now; apply them here like
+  -- every other polled key.
+  if s.rc_tiles_enabled ~= nil and SET.rc then SET.rc.enabled = s.rc_tiles_enabled end
+  if s.line_enabled ~= nil then SET.line.enabled = s.line_enabled end
+  if s.line_path_mode ~= nil then SET.line.path_mode = s.line_path_mode end
+  if type(s.line_thickness) == "number" then SET.line.thickness = s.line_thickness end
+  if type(s.line_color) == "table" and s.line_color[4] ~= nil then
+    SET.line.cr, SET.line.cg, SET.line.cb, SET.line.ca =
+      s.line_color[1], s.line_color[2], s.line_color[3], s.line_color[4]
+  end
   if s.floor_timer_alt_detect ~= nil then SET.timer.alt_detect = s.floor_timer_alt_detect end
   if s.floor_timer_read ~= nil then SET.timer.read = s.floor_timer_read end
   if s.sync_enabled ~= nil and SET.sync.open then
@@ -2650,6 +2654,12 @@ if ICON_PANEL_VISIBLE then SET.icons.open_panel() end
 -- ============================================================================
 require("settings_panel")({ SET = SET })
 
+-- ============================================================================
+-- Runecraft Tiles puzzle solver (ported from the archived room-detect plugin,
+-- exhaustive mode only) -- lives in rc_tiles.lua, interface on SET.rc.
+-- ============================================================================
+require("rc_tiles")({ SET = SET })
+
 
 
 -- Shader for world-space scan-range square. Vec3 position per vertex; single
@@ -3121,116 +3131,11 @@ function LD.render(event)
   prog:drawtogameview(event, sbuf, vertex_count)
 end
 
--- ---- Line Draw panel (opened as its own sub-window, toggled from the control
--- panel via line_panel_visible, same as the rooms/keys panels). --------------
-local LINE_PANEL_W, LINE_PANEL_H = 160, 220   -- narrow layout, no section chrome (2026-07-27)
-local line_x, line_y = 30, 120
-do
-  local saved = SET.get("line_panel_pos", nil)
-  if saved then line_x, line_y = saved[1], saved[2] end
-end
-
-function LD.build_state_json()
-  return string.format(
-    "{\"enabled\":%s,\"thickness\":%s," ..
-    "\"color\":{\"r\":%d,\"g\":%d,\"b\":%d,\"a\":%d}," ..
-    "\"keysCount\":%d,\"pathMode\":%s,\"pathAvailable\":%s}",
-    tostring(LD.enabled), tostring(LD.thickness),
-    LD.cr, LD.cg, LD.cb, LD.ca,
-    LD.last_keys_count, tostring(LD.path_mode),
-    tostring(S.map_origin ~= nil))
-end
-
--- UNCONDITIONAL push, every poll tick, no dedupe. Dedupe poisoned itself
--- twice: a push sent before the page finished loading is dropped by CEF but
--- was cached as delivered, and with a static body (keysCount only changes
--- in-floor) nothing ever re-sent -- the panel sat on defaults while the
--- plugin ran the real values. ~150 bytes at 2Hz is nothing; the page guards
--- focused inputs so identical re-applies are invisible.
-function LD.push_state()
-  if not LD.browser then return end
-  LD.push_n = (LD.push_n or 0) + 1
-  LD.browser:sendmessage("state:" .. LD.build_state_json())
-  -- Diag: every 20th push, record both directions' counters so a dead leg
-  -- (page->plugin vs plugin->page) is readable from ld_diag.txt directly.
-  if LD.push_n % 20 == 1 then
-    SET.dev_save("ld_diag.txt", string.format(
-      "pushes=%d  msgs_received=%d  last_msg=%s  enabled=%s keys=%s walls=%s thick=%s\n",
-      LD.push_n, LD.msg_n or 0, tostring(LD.msg_last),
-      tostring(LD.enabled), tostring(LD.keys_mode), tostring(LD.through_walls),
-      tostring(LD.thickness)))
-  end
-end
-
-function LD.on_msg(msg)
-  LD.msg_n = (LD.msg_n or 0) + 1
-  LD.msg_last = msg
-  if msg == "refresh" then LD.push_state(); return end
-
-  -- Header X: persist the closed state FIRST so the settings poll agrees, then
-  -- close. LD.visible must flip too or apply_toggle would re-close a browser
-  -- that is already gone (harmless) or fight a stale true on the next poll.
-  if msg == "close_panel" then
-    SET.set("line_panel_visible", false)
-    LD.visible = false
-    LD.close()
-    return
-  end
-
-  local en = msg:match("^set_enabled:(%a+)$")
-  if en then LD.enabled = (en == "true"); SET.set("line_enabled", LD.enabled); return end
-
-  local tw = msg:match("^set_through_walls:(%a+)$")
-  if tw then LD.through_walls = (tw == "true"); SET.set("line_through_walls", LD.through_walls); return end
-
-  local km = msg:match("^set_keys_mode:(%a+)$")
-  if km then
-    LD.keys_mode = (km == "true"); SET.set("line_keys_mode", LD.keys_mode)
-    LD.push_state(); return
-  end
-
-  local pm = msg:match("^set_path_mode:(%a+)$")
-  if pm then
-    LD.path_mode = (pm == "true"); SET.set("line_path_mode", LD.path_mode)
-    LD.push_state(); return
-  end
-
-  local th = msg:match("^set_thickness:([%d%.]+)$")
-  if th then LD.thickness = tonumber(th) or LD.thickness; SET.set("line_thickness", LD.thickness); return end
-
-  local cr, cg, cb, ca = msg:match("^set_color:(%d+),(%d+),(%d+),(%d+)$")
-  if cr then
-    LD.cr, LD.cg, LD.cb, LD.ca = tonumber(cr), tonumber(cg), tonumber(cb), tonumber(ca)
-    SET.set("line_color", { LD.cr, LD.cg, LD.cb, LD.ca })
-    return
-  end
-  -- (set_a / set_b / use_player_* removed with the POINT A/B UI, 2026-07-27.
-  -- LD.a/LD.b still exist for the dormant manual-line render path.)
-end
-
-LD.open = function ()
-  if LD.browser then return end
-  line_x, line_y = SET.clamp(line_x, line_y, LINE_PANEL_W, LINE_PANEL_H)
-  LD.browser = bolt.createembeddedbrowser(
-    line_x, line_y, LINE_PANEL_W, LINE_PANEL_H, "plugin://line_panel.html")
-  LD.browser:onreposition(function (event)
-    local nx, ny = event:xywh()
-    line_x, line_y = nx, ny
-    SET.set("line_panel_pos", { nx, ny })
-  end)
-  LD.browser:onmessage(LD.on_msg)
-  -- NO push here. A push this early lands before the page loads AND poisons
-  -- the dedupe cache (_state_last records a body nobody received, so the
-  -- poll's re-push skips itself -- the exact "panel shows stale toggles" bug,
-  -- round two). The page pulls: it sends "refresh" repeatedly until the first
-  -- state lands, and refresh clears _state_last.
-end
-LD.close = function ()
-  if not LD.browser then return end
-  LD.browser:close(); LD.browser = nil
-end
-
-if LD.visible then LD.open() end
+-- The standalone Line Draw panel is GONE (2026-07-28): its settings moved into
+-- the settings panel as a "line draw" group, written to settings.json there and
+-- applied by the settings poll like every other key. That also retires the
+-- whole panel<->plugin message protocol and the state-push machinery that
+-- produced two rounds of sync bugs.
 end)()   -- run the Line Draw module body (own function scope, own local budget)
 
 -- Floor timer (self-timed stopwatch). Own function scope so its helpers don't
@@ -3707,6 +3612,14 @@ bolt.onrender3d(function (event)
       }
       return
     end
+  end
+
+  -- Runecraft Tiles puzzle: every n=4644 mesh is one tile. Same placement
+  -- logic as ghosts -- BEFORE the scan-range cull (the puzzle spans the room,
+  -- the cull box does not) and RETURNING so a puzzle tile can never reach the
+  -- resource path or the unknown queue.
+  if SET.scan_frame and mn == 4644 and SET.rc and SET.rc.scan then
+    if SET.rc.scan(event, wx, wy, wz, px, pz) then return end
   end
 
   -- Line Draw: key lines (keys mode) OR HUD key log.
@@ -4187,6 +4100,39 @@ bolt.onrendergameview(function (event)
     draw_group(good, 0.20, 1.0, 0.30, pulse, 96)
   end
 
+  -- 1c) RUNECRAFT TILES solve plan. Red dot = FORCE this tile, magenta ring =
+  -- IMBUE it; a combo tile shows the dot inside the ring. World-space quads at
+  -- the tile centre, drawn with the same program as everything above.
+  local rc_marks = SET.rc and SET.rc.markers and SET.rc.markers()
+  if rc_marks then
+    local function rc_draw(quads, r, g, b, a)
+      if #quads == 0 then return end
+      local gb = bolt.createbuffer(#quads * 6 * sr_bytes_per_vert)
+      local goff = 0
+      for _, q in ipairs(quads) do
+        goff = sr_push_quad(gb, goff, q[1], q[2], q[3], q[4], q[5])
+      end
+      sr_program:setuniform4f(2, r, g, b, a)
+      local sbuf = bolt.createshaderbuffer(gb)
+      sr_program:drawtogameview(event, sbuf, #quads * 6)
+    end
+    local force_q, imbue_q = {}, {}
+    for _, t in ipairs(rc_marks.force) do
+      local y = t.wy + 15
+      force_q[#force_q + 1] = { t.wx - 80, t.wz - 80, t.wx + 80, t.wz + 80, y }
+    end
+    for _, t in ipairs(rc_marks.imbue) do
+      -- Hollow square: 4 border strips (outer half-width 210, strip 40).
+      local y, o, th = t.wy + 15, 210, 40
+      imbue_q[#imbue_q + 1] = { t.wx - o, t.wz - o,      t.wx + o, t.wz - o + th, y }
+      imbue_q[#imbue_q + 1] = { t.wx - o, t.wz + o - th, t.wx + o, t.wz + o,      y }
+      imbue_q[#imbue_q + 1] = { t.wx - o, t.wz - o + th, t.wx - o + th, t.wz + o - th, y }
+      imbue_q[#imbue_q + 1] = { t.wx + o - th, t.wz - o + th, t.wx + o, t.wz + o - th, y }
+    end
+    rc_draw(imbue_q, 1.0, 0.30, 0.95, 0.90)
+    rc_draw(force_q, 1.0, 0.15, 0.15, 0.90)
+  end
+
   -- Door-adjacent tile highlights for the 3x3 of rooms centred on the player's
   -- room. For each present, OPENED room (skip empty cells + unopened templates)
   -- and each wall that ACTUALLY CONNECTS (cell_doors), highlight tiles just
@@ -4652,6 +4598,8 @@ bolt.onswapbuffers(function (event)
   SET.line.frame_keys = {}
   -- Floor timer + HUD: own floor-change detection + display push, every frame.
   SET.timer.tick()
+  -- Runecraft Tiles: room-change reset + one solver slice per frame.
+  if SET.rc and SET.rc.tick then SET.rc.tick() end
   SET.examine.tick()   -- skill-door examine: extraction + door binding
   SET.sync.tick()      -- party sync: heartbeat + diag
   -- Observation-pipeline diagnostic. It MUST live here rather than inside
