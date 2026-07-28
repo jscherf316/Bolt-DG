@@ -67,30 +67,68 @@
 
     // ---- hiscores sidecar --------------------------------------------------
     // This always-on page is the plugin's only network leg (the Lua sandbox
-    // has no fetch; bolt's CEF runs with --disable-web-security so CORS does
-    // not apply). Plugin sends "hs_fetch:<name>", we reply "hs_ok:<csv>" or
-    // "hs_err:<detail>" after retries.
+    // has no sockets). Plugin sends "hs_fetch:<name>", we reply "hs_ok:<csv>"
+    // or "hs_err:<detail>" after retries.
+    //
+    // CORS, measured not assumed (2026-07-28, devtools on this page):
+    //   "Access to fetch at 'secure.runescape.com/...' from origin 'null'
+    //    has been blocked by CORS policy: No 'Access-Control-Allow-Origin'"
+    // A plugin:// page has an OPAQUE origin ("null"), and Jagex sends no ACAO
+    // header at all, so nothing but a wildcard/null ACAO can ever satisfy it.
+    // The request itself succeeds (200) -- only reading the body is blocked.
+    // main.cxx's "re-run with --disable-web-security" comment is dead code:
+    // no build actually appends the switch. So the direct fetch cannot work
+    // on stock bolt, and a relay that adds the header is required.
+    //
+    // Surveyed alternatives: the RS wiki / Weird Gloop API send ACAO * but
+    // expose no player stats (exchange, VOS, social only); RunePixels HAS
+    // full per-skill levels but echoes ACAO only for its own origin, so a
+    // null origin is refused. allorigins returns ACAO "null", which matches
+    // our origin exactly -- verified end to end against the real endpoint.
+    //
+    // Direct is still tried FIRST so this self-heals for free if bolt ever
+    // ships the switch (or adds a bolt-api fetch endpoint); the relay is the
+    // fallback. hs_diag records which transport won.
     const HS_TRIES = 5, HS_RETRY_MS = 10000;
     const post = (body) =>
       fetch("https://bolt-api/send-message", { method: "POST", body }).catch(() => {});
 
-    function hsFetch(name, attempt) {
-      const url = "https://secure.runescape.com/m=hiscore/index_lite.ws?player="
-        + encodeURIComponent(name);
-      fetch(url)
+    const TRANSPORTS = [
+      { name: "direct", url: (n) =>
+          "https://secure.runescape.com/m=hiscore/index_lite.ws?player=" + encodeURIComponent(n) },
+      { name: "allorigins", url: (n) =>
+          "https://api.allorigins.win/raw?url=" + encodeURIComponent(
+            "https://secure.runescape.com/m=hiscore/index_lite.ws?player=" + encodeURIComponent(n)) },
+    ];
+
+    function hsTry(name, attempt, ti, errs) {
+      if (ti >= TRANSPORTS.length) {
+        if (attempt < HS_TRIES) {
+          setTimeout(() => hsTry(name, attempt + 1, 0, []), HS_RETRY_MS);
+        } else {
+          post("hs_err:" + errs.join(" | "));
+        }
+        return;
+      }
+      const t = TRANSPORTS[ti];
+      fetch(t.url(name))
         .then((r) => {
           if (!r.ok) throw new Error("HTTP " + r.status);
           return r.text();
         })
-        .then((text) => post("hs_ok:" + text))
+        .then((text) => {
+          // A relay can answer 200 with an error page instead of the CSV;
+          // require the shape (first line "rank,level,xp") before accepting.
+          if (!/^\d+,\d+,\d+/.test(text)) throw new Error("not hiscores CSV");
+          post("hs_ok:" + t.name + ":" + text);
+        })
         .catch((err) => {
-          if (attempt < HS_TRIES) {
-            setTimeout(() => hsFetch(name, attempt + 1), HS_RETRY_MS);
-          } else {
-            post("hs_err:" + String(err && err.message || err));
-          }
+          errs.push(t.name + ": " + String((err && err.message) || err));
+          hsTry(name, attempt, ti + 1, errs);
         });
     }
+
+    function hsFetch(name, attempt) { hsTry(name, attempt, 0, []); }
 
     window.addEventListener("message", (e) => {
       if (!e.data || e.data.type !== "pluginMessage") return;

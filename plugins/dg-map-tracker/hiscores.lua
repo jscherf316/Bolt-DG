@@ -83,11 +83,20 @@ return function (deps)
 
   function SET.hs_onmsg(msg)
     if msg:sub(1, 6) == "hs_ok:" then
+      -- "hs_ok:<transport>:<csv>" -- the page names which leg won (direct is
+      -- tried first and is expected to fail on stock bolt; see the CORS note
+      -- in settings_trigger.html).
       local body = msg:sub(7)
+      local transport, rest = body:match("^(%a[%w_]*):(.*)$")
+      if transport then
+        HS.transport = transport
+        body = rest
+      end
       bolt.saveconfig("hs_raw.txt", body)   -- always kept: the order-verification artifact
       local levels, err = parse_csv(body)
       if levels then
-        apply(levels, "live fetch (" .. tostring(HS.player) .. ")")
+        apply(levels, ("live fetch via %s (%s)"):format(
+          tostring(HS.transport or "?"), tostring(HS.player)))
         SET.set("hiscores_cache", { name = HS.player, levels = levels })
       else
         diag("parse failed: " .. tostring(err))

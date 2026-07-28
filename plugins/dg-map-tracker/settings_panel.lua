@@ -211,6 +211,14 @@ return function (deps)
       end
     end)
     PANEL.trigger = trigger
+    -- Devtools on the sidecar page, behind dev mode AND an opt-in setting.
+    -- JS only ever surfaces "Failed to fetch" for a blocked request; the
+    -- real reason (CORS policy vs net::ERR_*) is printed in the console
+    -- alone -- which is how the pre3 fetch failure was finally pinned. Set
+    -- hs_devtools true in settings.json to diagnose a hiscores transport.
+    if SET.DEV and SET.get("hs_devtools", false) == true then
+      trigger:showdevtools()
+    end
   end
 
   PANEL.open = open_panel
