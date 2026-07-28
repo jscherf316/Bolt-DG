@@ -19,6 +19,7 @@
 - Drag the three capture zones for MAP, KEYBAG, and WORLD MAP over the
   in-game DG map, keybag, and world map icon respectively.
 - Toggle capture zone display off from settings panel when done.
+- Start a new dungeon and everything should be working.
 
 ## Development
 
