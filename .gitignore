@@ -26,3 +26,6 @@ CLAUDE-READ-FIRST.md
 # Design plans and UI mocks are working material, not shipped plugin content.
 *_PLAN.md
 *_mock.html
+
+# Release build output
+dist/

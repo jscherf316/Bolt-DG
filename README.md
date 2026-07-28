@@ -14,7 +14,9 @@ Bolt-launcher plugin for RuneScape 3 Dungeoneering.
 
 ## Setup
 
-- Import `plugins/dg-map-tracker/` via Bolt's plugin manager.
+- In Bolt's plugin manager, install from URL:
+  `https://raw.githubusercontent.com/jscherf316/Bolt-DG/main/meta.json`
+  (or import `plugins/dg-map-tracker/` from a clone by hand).
 - On first run the three capture zones appear as labeled coloured boxes:
   MAP (red), KEYBAG (blue), WORLD MAP (green).
 - Drag each box over the matching game element.
