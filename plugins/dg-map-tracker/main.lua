@@ -30,7 +30,7 @@ local json = require("json")
 -- the deps were passed to the OLD cached function that ignored them). Clearing
 -- here makes each require below re-read its file.
 for _, _m in ipairs({ "parity", "examine", "icons", "sync", "resources",
-                      "settings_panel", "rc_tiles" }) do
+                      "settings_panel", "rc_tiles", "hiscores" }) do
   package.loaded[_m] = nil
 end
 
@@ -2665,6 +2665,13 @@ require("settings_panel")({ SET = SET })
 -- exhaustive mode only) -- lives in rc_tiles.lua, interface on SET.rc.
 -- ============================================================================
 require("rc_tiles")({ SET = SET })
+
+-- ============================================================================
+-- Player skill levels from the RS3 hiscores API -- lives in hiscores.lua,
+-- interface on SET.hs / SET.skills. Fetch runs through the settings trigger
+-- page (the sandbox has no network); feeds skill-door crit/bonus adjustment.
+-- ============================================================================
+require("hiscores")({ SET = SET })
 
 
 

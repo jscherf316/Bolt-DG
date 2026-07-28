@@ -1,5 +1,10 @@
-# Skill door tier data. Used by the parity engine to determine whether a
-# skill-door-locked room is guaranteed CRIT, guaranteed BONUS, or ambiguous.
+# Skill door tier data -- the STATIC FALLBACK since 2026-07-28. Solo floors
+# with a live hiscores level use the level-aware rule in examine.lua instead
+# (bonus doors generate only in 1-105; crit doors only in [level-9, level]);
+# this table decides group floors and unknown-level skills. Requirements of
+# 106+ are guaranteed crit before this table is consulted, so the crit
+# ranges below are effectively dead; the file doubles as the roster of
+# skills that can appear on doors.
 #
 # Format:  skill|max|crit_lo|crit_hi|bonus_lo|bonus_hi
 #   skill        - matches the DOOR_<name> suffix, lowercase

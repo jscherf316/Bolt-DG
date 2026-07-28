@@ -197,7 +197,18 @@ return function (deps)
       SET.set("cp_trigger_pos", { nx, ny })
     end)
     trigger:onmessage(function (msg)
-      if msg == "open" then open_panel() end
+      if msg == "open" then open_panel(); return end
+      -- The trigger page doubles as the network sidecar (the sandbox has no
+      -- fetch); hiscores.lua hangs its handlers on SET so load order between
+      -- the two modules never matters.
+      if msg == "ready" then
+        if SET.hs_trigger_ready then SET.hs_trigger_ready() end
+        return
+      end
+      if msg:sub(1, 3) == "hs_" then
+        if SET.hs_onmsg then SET.hs_onmsg(msg) end
+        return
+      end
     end)
     PANEL.trigger = trigger
   end

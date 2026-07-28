@@ -64,5 +64,44 @@
     });
     // If the pointer leaves the button mid-drag/click, cancel arming.
     btn.addEventListener("mouseleave", () => { if (!dragged) held = false; });
+
+    // ---- hiscores sidecar --------------------------------------------------
+    // This always-on page is the plugin's only network leg (the Lua sandbox
+    // has no fetch; bolt's CEF runs with --disable-web-security so CORS does
+    // not apply). Plugin sends "hs_fetch:<name>", we reply "hs_ok:<csv>" or
+    // "hs_err:<detail>" after retries.
+    const HS_TRIES = 5, HS_RETRY_MS = 10000;
+    const post = (body) =>
+      fetch("https://bolt-api/send-message", { method: "POST", body }).catch(() => {});
+
+    function hsFetch(name, attempt) {
+      const url = "https://secure.runescape.com/m=hiscore/index_lite.ws?player="
+        + encodeURIComponent(name);
+      fetch(url)
+        .then((r) => {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.text();
+        })
+        .then((text) => post("hs_ok:" + text))
+        .catch((err) => {
+          if (attempt < HS_TRIES) {
+            setTimeout(() => hsFetch(name, attempt + 1), HS_RETRY_MS);
+          } else {
+            post("hs_err:" + String(err && err.message || err));
+          }
+        });
+    }
+
+    window.addEventListener("message", (e) => {
+      if (!e.data || e.data.type !== "pluginMessage") return;
+      let c = e.data.content;
+      if (c instanceof Uint8Array) c = new TextDecoder().decode(c);
+      else if (c instanceof ArrayBuffer) c = new TextDecoder().decode(new Uint8Array(c));
+      if (typeof c !== "string") return;
+      if (c.startsWith("hs_fetch:")) hsFetch(c.slice(9), 1);
+    });
+
+    // Announce readiness so the plugin knows sendmessage will be heard.
+    post("ready");
   </script>
 </body></html>

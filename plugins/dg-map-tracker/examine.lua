@@ -142,12 +142,12 @@ function EX.in_capture(x0, y0, x1, y1)
      and cy >= EX.ry and cy <= EX.ry + EX.rh
 end
 
--- skill -> guaranteed ranges, from data/skill_doors.txt. BOTH directions are
--- guarantees (adjudicated 2026-07-15 by the tier table's author): a level
--- inside exactly one range proves that parity; inside both (strength's
--- 106-110 overlap) or neither (the 101-105 gap) proves nothing. crit_lo == 0
--- is the file's "no crit range" sentinel (prayer/agility/summoning/
--- divination/construction).
+-- skill -> static guaranteed ranges, from data/skill_doors.txt. Since the
+-- level-aware rules landed (2026-07-28), this table is the FALLBACK path
+-- only: it decides group floors and unknown-level skills, and only for
+-- requirements <= 105 (106+ is guaranteed crit before this table is
+-- consulted, so the file's crit ranges are now dead weight). It also serves
+-- as the roster of skills that can appear on doors at all.
 local SKILL_DOORS = {}
 do
   local raw = SET.read_bundled("skill_doors.txt")
@@ -616,50 +616,84 @@ function EX.tick()
         -- leaves the census pool and its repeats are recognised by skill+level.
         S.bound_doors[target.ck] = { skill = target.skill, v = EX.level.v }
         local sd = SKILL_DOORS[target.skill]
-        local in_bonus = sd and EX.level.v >= sd.bonus_lo and EX.level.v <= sd.bonus_hi
-        -- CAP-OVERFLOW BONUS: a door on a level-99-max skill whose requirement
-        -- lands in 100-105 (above the skill's real cap) is guaranteed BONUS.
-        -- Disjoint from the normal 1-N band, so it carries its own reason.
-        local over_cap = sd and sd.max == 99 and EX.level.v >= 100 and EX.level.v <= 105
-        if over_cap then in_bonus = true end
-        local in_crit  = sd and sd.crit_lo > 0
-          and EX.level.v >= sd.crit_lo and EX.level.v <= sd.crit_hi
+        local R = EX.level.v
+        -- Decide parity ("crit" / "bonus" / nil = ambiguous) plus the reason.
+        -- Door-generation rules (verified with the table's author 2026-07-28):
+        --   * Bonus doors generate ONLY in 1-105, every skill. So R >= 106 is
+        --     crit unconditionally -- solo or group, level known or not. This
+        --     supersedes the static crit ranges (and the old strength row's
+        --     claimed 106-110 bonus overlap, which cannot actually generate).
+        --   * Crit doors generate ONLY in [L-9, L] of the deciding level L
+        --     (solo: the player's own level, live from hiscores). Anything
+        --     else in 1-105 is guaranteed bonus.
+        -- On a GROUP floor the deciding L is the party's highest, which we
+        -- don't know yet -- fall back to the static adjudicated ranges until
+        -- party sync shares levels. Same fallback when the skill's level is
+        -- unknown (fetch failed and no cache, or unranked).
+        local parity, why
+        local L = (not S.group_seen) and SET.skills and SET.skills[target.skill] or nil
+        if R >= 106 then
+          parity = "crit"
+          why = ("skill door examined: requires level %d %s -- above 105, where " ..
+                 "only crit doors generate"):format(R, target.skill)
+        elseif L then
+          local lo, hi = math.max(1, L - 9), math.min(L, 105)
+          if R >= lo and R <= hi then
+            why = ("%d is inside the possible-crit band %d-%d for level %d %s"):format(
+              R, lo, hi, L, target.skill)
+          else
+            parity = "bonus"
+            why = ("skill door examined: requires level %d %s, outside the " ..
+                   "level-%d crit band %d-%d -- guaranteed bonus"):format(
+              R, target.skill, L, lo, hi)
+          end
+        else
+          local in_bonus = sd and R >= sd.bonus_lo and R <= sd.bonus_hi
+          -- CAP-OVERFLOW BONUS: a door on a level-99-max skill whose requirement
+          -- lands in 100-105 (above the skill's real cap) is guaranteed BONUS.
+          -- Disjoint from the normal 1-N band, so it carries its own reason.
+          local over_cap = sd and sd.max == 99 and R >= 100 and R <= 105
+          if in_bonus or over_cap then
+            parity = "bonus"
+            why = over_cap
+              and ("skill door examined: requires level %d %s, in the 100-105 band " ..
+                   "above the level-99 cap -- guaranteed bonus"):format(R, target.skill)
+              or  ("skill door examined: requires level %d %s, inside " ..
+                   "the static guaranteed-bonus range %d-%d"):format(R, target.skill, sd.bonus_lo, sd.bonus_hi)
+          else
+            why = ("level %d in no static guaranteed range (group floor or " ..
+                   "player level unknown)"):format(R)
+          end
+        end
+        -- FIRST PROOF WINS, same rule as parity facts. Never overwrite an
+        -- established reason.
         local verdict
-        if in_bonus and in_crit then
-          verdict = "ambiguous (level inside BOTH ranges -- overlap)"
-        elseif in_bonus then
-          -- FIRST PROOF WINS, same rule as parity facts. Never overwrite an
-          -- established reason.
+        if parity == "bonus" then
           if S.skill_bonus[target.ck] then
             verdict = "BONUS (already marked -- kept first proof)"
           else
-            S.skill_bonus[target.ck] = over_cap
-              and ("skill door examined: requires level %d %s, in the 100-105 band " ..
-                   "above the level-99 cap -- guaranteed bonus"):format(EX.level.v, target.skill)
-              or  ("skill door examined: requires level %d %s, inside " ..
-                   "the guaranteed-bonus range %d-%d"):format(EX.level.v, target.skill, sd.bonus_lo, sd.bonus_hi)
+            S.skill_bonus[target.ck] = why
             verdict = "BONUS"
             SET.parity_kick = true   -- repaint the map THIS swap, not next dump tick
             if SET.sync.emit then
               SET.sync.emit({ t = "skill_door", c = target.ck, s = target.skill,
-                              v = EX.level.v, p = "bonus" })
+                              v = R, p = "bonus" })
             end
           end
-        elseif in_crit then
+        elseif parity == "crit" then
           if S.skill_crit[target.ck] then
             verdict = "CRIT (already marked -- kept first proof)"
           else
-            S.skill_crit[target.ck] = ("skill door examined: requires level %d %s, inside " ..
-              "the guaranteed-crit range %d-%d"):format(EX.level.v, target.skill, sd.crit_lo, sd.crit_hi)
+            S.skill_crit[target.ck] = why
             verdict = "CRIT"
             SET.parity_kick = true   -- repaint the map THIS swap, not next dump tick
             if SET.sync.emit then
               SET.sync.emit({ t = "skill_door", c = target.ck, s = target.skill,
-                              v = EX.level.v, p = "crit" })
+                              v = R, p = "crit" })
             end
           end
         else
-          verdict = "ambiguous (level in neither guaranteed range)"
+          verdict = "ambiguous (" .. why .. ")"
         end
         EX.bind = { ck = target.ck, skill = target.skill, v = EX.level.v,
                     verdict = verdict, how = how, t = bolt.time() }
