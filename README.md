@@ -4,13 +4,11 @@
 
 ## Features
 
-- Live floor map with crit/bonus room parity
-- Key and key-door tracking
-- Resource and ground-key highlights
-- Line draw pointing at tracked keys
-- Skill-door tier lookup
-- Party sync
-- Built-in settings panel (the CTRL button)
+- Automatic Guide Mode
+- Key and door tracking
+- Resource and ground key highlights
+- Party Sync (unstable)
+- Built in settings panel
 
 ## Setup
 
