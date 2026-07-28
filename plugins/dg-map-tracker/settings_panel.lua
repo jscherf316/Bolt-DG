@@ -29,6 +29,10 @@ return function (deps)
     { key = "scan_range_tiles",     type = "int_stepper", default = 64, min = 32, max = 64, step = 16,
       label = "Scan range", category = "dev" },
     { key = "show_capture_zones",   type = "bool",        default = true,  label = "Show capture zones", category = "normal" },
+    -- Ground-key cursor hint: the key icon(s) stacked beside the mouse.
+    { key = "cursor_keys_enabled",  type = "bool",        default = true,  label = "Cursor key icons", category = "normal" },
+    { key = "cursor_keys_scale",    type = "int_stepper", default = 200, min = 50, max = 300, step = 10,
+      label = "Cursor icon size", category = "normal", visible_when = "cursor_keys_enabled" },
     -- Puzzle utilities render as their OWN top-level card (section field), a
     -- sibling of the Settings card -- more solvers land here over time.
     { key = "rc_tiles_enabled",     type = "bool",        default = true,  label = "Runecraft Tiles", category = "normal", section = "Puzzles" },

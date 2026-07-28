@@ -262,6 +262,12 @@ local function poll_settings()
   -- Line Draw settings live in the settings panel now; apply them here like
   -- every other polled key.
   if s.rc_tiles_enabled ~= nil and SET.rc then SET.rc.enabled = s.rc_tiles_enabled end
+  -- On SET, not S: this function is DEFINED before S is declared, so S here
+  -- would compile as a nil global read -- and this poll RUNS at load. Exactly
+  -- the trap the top-of-file comment warns about; it broke startup once
+  -- (2026-07-28, the moment settings.json gained the cursor keys).
+  if s.cursor_keys_enabled ~= nil then SET.ckeys_on = s.cursor_keys_enabled end
+  if type(s.cursor_keys_scale) == "number" then SET.ckeys_scale = s.cursor_keys_scale end
   if s.line_enabled ~= nil then SET.line.enabled = s.line_enabled end
   if s.line_path_mode ~= nil then SET.line.path_mode = s.line_path_mode end
   if type(s.line_thickness) == "number" then SET.line.thickness = s.line_thickness end
@@ -4576,16 +4582,60 @@ bolt.onswapbuffers(function (event)
     if present and not S.floor_active then
       S.floor_active = true
       S.floor_rise_us = nowf   -- start the stabilize window (process_room_observations)
-      rooms_by_cell = {}
-      room_observations = {}
-      wipe_floor_state()
-      if SET.DEV then
-        S.diag_log = (S.diag_log or "") .. string.format(
-          "floor gate RISING at %.1fs -- graph cleared, floor state wiped\n", nowf / 1e6)
-        SET.dev_save("floor_diag.txt", S.diag_log)
+      -- FLAP DETECTION (2026-07-28). On some setups the floor icon stops
+      -- rendering for >4s mid-floor (fresh-install report: the gate cycled
+      -- every 30-80s, ~half the stamp reads were pixel misses and the gaps
+      -- clustered), and every RISING wiped map_origin + the anchor. That wipe
+      -- is unrecoverable mid-floor -- base calibration only works before the
+      -- first base door opens -- so door highlights and ground keys died at
+      -- the first flap of every floor while the map (relative coords) kept
+      -- looking healthy. A REAL floor change teleports the player: position
+      -- unreadable during the loading screen, thousands of tiles away after
+      -- (every recorded transition in floor_diag history jumps >1000 tiles;
+      -- movement WITHIN a floor tops out around 128). So: player still within
+      -- 256 tiles of where the gate FELL => this rising is a flap -- keep the
+      -- graph and all floor state. The >128-tile jump detector independently
+      -- wipes on real transitions, so a wrongly-kept wipe has a second net.
+      local flap = false
+      if S.gate_fall_tx then
+        local fpos = bolt.playerposition()
+        if fpos then
+          local fpx, _, fpz = fpos:get()
+          flap = math.abs(math.floor(fpx / RES_TILE_UNITS) - S.gate_fall_tx) <= 256
+             and math.abs(math.floor(fpz / RES_TILE_UNITS) - S.gate_fall_tz) <= 256
+        end
+      end
+      S.gate_fall_tx, S.gate_fall_tz = nil, nil
+      if flap then
+        if SET.DEV then
+          S.diag_log = (S.diag_log or "") .. string.format(
+            "floor gate RISING at %.1fs -- FLAP (player near fall point), state preserved\n",
+            nowf / 1e6)
+          SET.dev_save("floor_diag.txt", S.diag_log)
+        end
+      else
+        rooms_by_cell = {}
+        room_observations = {}
+        wipe_floor_state()
+        if SET.DEV then
+          S.diag_log = (S.diag_log or "") .. string.format(
+            "floor gate RISING at %.1fs -- graph cleared, floor state wiped\n", nowf / 1e6)
+          SET.dev_save("floor_diag.txt", S.diag_log)
+        end
       end
     elseif not present and S.floor_active then
       S.floor_active = false
+      -- Stamp WHERE the gate fell; the rising edge uses it to tell a mid-floor
+      -- icon dropout from a real floor change. Unreadable position = loading
+      -- screen = real change (leave nil, the rising edge then wipes).
+      local fpos = bolt.playerposition()
+      if fpos then
+        local fpx, _, fpz = fpos:get()
+        S.gate_fall_tx = math.floor(fpx / RES_TILE_UNITS)
+        S.gate_fall_tz = math.floor(fpz / RES_TILE_UNITS)
+      else
+        S.gate_fall_tx, S.gate_fall_tz = nil, nil
+      end
       if SET.DEV then
         S.diag_log = (S.diag_log or "") .. string.format(
           "floor gate FALLING at %.1fs -- mapping frozen\n", nowf / 1e6)
@@ -4712,15 +4762,26 @@ bolt.onswapbuffers(function (event)
   -- per-frame S.cursor_keys snapshot (taken above before the scan clear) so it
   -- holds steady instead of flickering. Independent of the map panel, so it
   -- shows even with the map closed. Drawn after the map blit so it sits on top.
-  if PLUGIN_ENABLED and S.cursor_mx and S.cursor_keys then
+  -- Lazy init (the poll only applies keys PRESENT in settings.json, so a
+  -- fresh install would never see the defaults through it).
+  if SET.ckeys_on == nil then
+    SET.ckeys_on    = SET.get("cursor_keys_enabled", true) == true
+    SET.ckeys_scale = tonumber(SET.get("cursor_keys_scale", 200)) or 200
+  end
+  if PLUGIN_ENABLED and SET.ckeys_on and S.cursor_mx and S.cursor_keys then
     local oy = 0
     for name in pairs(S.cursor_keys) do
       local ki = key_icon(name)
       if ki then
-        local sc = 2
+        -- FLOOR every pixel argument: a non-x100 scale makes w*sc fractional,
+        -- and drawtoscreen rejects non-integer args -- which killed the whole
+        -- plugin the first time the size stepper left 200 (2026-07-28).
+        local sc = (SET.ckeys_scale or 200) / 100
+        local dw = math.max(1, math.floor(ki.w * sc + 0.5))
+        local dh = math.max(1, math.floor(ki.h * sc + 0.5))
         ki.surf:drawtoscreen(0, 0, ki.w, ki.h,
-          S.cursor_mx + 20, S.cursor_my + 20 + oy, ki.w * sc, ki.h * sc)
-        oy = oy + ki.h * sc + 3
+          math.floor(S.cursor_mx + 20), math.floor(S.cursor_my + 20 + oy), dw, dh)
+        oy = oy + dh + 3
       end
     end
   end
