@@ -18,9 +18,8 @@
 
   `https://raw.githubusercontent.com/jscherf316/Bolt-DG/main/meta.json`
 
-- On first run the three capture zones appear as labeled coloured boxes:
-  MAP (red), KEYBAG (blue), WORLD MAP (green).
-- Drag each box over the matching game element.
+- Drag the three capture zones for MAP, KEYBAG, and WORLD MAP over the
+  in-game DG map, keybag, and world map icon respectively.
 - Toggle capture zone display off from settings panel when done.
 
 ## Development
