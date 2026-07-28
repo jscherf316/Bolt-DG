@@ -764,28 +764,54 @@ local NON_ROOM_NAMES = {
   ["BUTTON_CLOSE"] = true,
 }
 
--- Histogram-mode grid-step estimator (buckets pairwise diffs into 4-px bins).
--- Rooms are wider than any jitter, so the mode is the true tile pitch. Only
--- diffs in [20, 100] px count -- filters near-duplicates and huge outliers.
+-- Exact grid-step estimator. Sorted coords cluster into distinct grid lines
+-- (same-line values differ by a few px, different lines by a cell or more);
+-- each adjacent-cluster gap spans an integer number of cells, so dividing
+-- total gap distance by total cell count gives a sub-pixel pitch.
+--
+-- Precision matters here more than it looks: cells are ROUNDED pixel deltas
+-- from the close-button anchor, and the base can sit ~8 cells away, where a
+-- step error is multiplied by 8. The old histogram version quantized to 4-px
+-- buckets (returns 30 or 34 for a true pitch of ~31.75, right on the bucket
+-- edge), and the winning bucket flipped as rooms came into view -- shifting
+-- every far-from-anchor cell by one and stranding the frozen map_origin, so
+-- door markers drew one room off whenever base spawned in the leftmost
+-- columns / deepest rows.
 local function estimate_grid_step(vals)
   if #vals < 2 then return nil end
   local sorted = {}
   for _, v in ipairs(vals) do sorted[#sorted + 1] = v end
   table.sort(sorted)
-  local buckets = {}
+  -- Cluster same-line values (< 20 px apart) into averaged centers.
+  local centers, acc, n = {}, sorted[1], 1
   for i = 2, #sorted do
-    local d = sorted[i] - sorted[i - 1]
-    if d >= 20 and d <= 100 then
-      local b = math.floor(d / 4)
-      buckets[b] = (buckets[b] or 0) + 1
+    if sorted[i] - sorted[i - 1] < 20 then
+      acc = acc + sorted[i]; n = n + 1
+    else
+      centers[#centers + 1] = acc / n
+      acc, n = sorted[i], 1
     end
   end
-  local best_b, best_c = nil, 0
-  for b, c in pairs(buckets) do
-    if c > best_c then best_b, best_c = b, c end
+  centers[#centers + 1] = acc / n
+  if #centers < 2 then return nil end
+  -- Seed the per-gap cell count from the smallest gap, then average all
+  -- gaps weighted by their cell count (long baselines dominate).
+  local gaps, min_gap = {}, math.huge
+  for i = 2, #centers do
+    local d = centers[i] - centers[i - 1]
+    if d <= 100 then
+      gaps[#gaps + 1] = d
+      if d < min_gap then min_gap = d end
+    end
   end
-  if not best_b then return nil end
-  return best_b * 4 + 2
+  if #gaps == 0 then return nil end
+  local dsum, ksum = 0, 0
+  for _, d in ipairs(gaps) do
+    local k = math.floor(d / min_gap + 0.5)
+    if k >= 1 then dsum = dsum + d; ksum = ksum + k end
+  end
+  if ksum == 0 then return nil end
+  return dsum / ksum
 end
 
 -- Forward declarations. Both are defined further down but called from above --
