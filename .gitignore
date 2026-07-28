@@ -29,3 +29,4 @@ CLAUDE-READ-FIRST.md
 
 # Release build output
 dist/
+plugins/dg-map-tracker/tools/key_icons_sheet.png
