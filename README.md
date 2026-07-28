@@ -15,12 +15,13 @@
 ## Setup
 
 - In Bolt's plugin manager, install from URL:
+
   `https://raw.githubusercontent.com/jscherf316/Bolt-DG/main/meta.json`
-  (or import `plugins/dg-map-tracker/` from a clone by hand).
+
 - On first run the three capture zones appear as labeled coloured boxes:
   MAP (red), KEYBAG (blue), WORLD MAP (green).
 - Drag each box over the matching game element.
-- Hide the boxes from the settings panel ("Show capture zones") when done.
+- Toggle capture zone display off from settings panel when done.
 
 ## Development
 
