@@ -2,9 +2,15 @@
 
 Bolt-launcher plugin for RuneScape 3 Dungeoneering.
 
-One plugin: **[dg-map-tracker](plugins/dg-map-tracker/)** -- a live DG floor
-map (room graph with crit/bonus parity), key tracking, resource highlighting,
-line draw, and a built-in settings panel (the CTRL button).
+## Features
+
+- Live floor map with crit/bonus room parity
+- Key and key-door tracking
+- Resource and ground-key highlights
+- Line draw pointing at tracked keys
+- Skill-door tier lookup
+- Party sync
+- Built-in settings panel (the CTRL button)
 
 ## Setup
 
