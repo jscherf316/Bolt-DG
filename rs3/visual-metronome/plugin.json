@@ -1,0 +1,13 @@
+{
+  "name": "Visual Metronome",
+  "version": "0.1.0",
+  "contactEmailAddress": "example.email@example.com",
+  "hasSettingsIcon": true,
+  "hasRibbonIcon": false,
+  "requiredDependencies": {
+    "prettyui": "prettyui"
+  },
+  "optionalDependencies": {},
+  "requiredPermissions": [],
+  "optionalPermissions": []
+}
