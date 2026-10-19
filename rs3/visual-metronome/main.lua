@@ -1,4 +1,12 @@
--- Visual Metronome: an on-screen box that changes colour on game ticks.
+-- Visual Metronome
+--
+-- Shows an on-screen indicator that changes on every game tick (0.6s), so the
+-- player can see the tick rhythm. Two display modes:
+--   box:     a square that alternates between two colours, with the tick number
+--   circles: a row of circles, one per tick in the cycle; the current tick's
+--            circle is lit
+-- The indicator can be dragged to move it. Settings are stored in PersistentDB.
+-- No data leaves the plugin.
 
 local EVENT_ID = "visual-metronome"
 
@@ -19,40 +27,40 @@ local DEFAULTS = {
     circles = false,
     tickCount = 2,
     size = 50,
-    x = 200,
-    y = 200,
+    positionX = 200,
+    positionY = 200,
     colour1 = 0xFF0000FF,
     colour2 = 0x00FF00FF,
 }
 
 local KEYS = {
     shown = "bool", locked = "bool", circles = "bool",
-    tickCount = "int", size = "int", x = "int", y = "int",
+    tickCount = "int", size = "int", positionX = "int", positionY = "int",
     colour1 = "int", colour2 = "int",
 }
 
-local S = {}
+local settings = {}
 
-local function clamp(v, lo, hi)
-    if v < lo then return lo end
-    if v > hi then return hi end
-    return v
+local function clamp(value, low, high)
+    if value < low then return low end
+    if value > high then return high end
+    return value
 end
 
 local function loadSettings()
-    for k, kind in pairs(KEYS) do
-        local v
-        if kind == "bool" then v = PersistentDB:GetBool(k) else v = PersistentDB:GetInt(k) end
-        if v == nil then v = DEFAULTS[k] end
-        S[k] = v
+    for key, kind in pairs(KEYS) do
+        local value
+        if kind == "bool" then value = PersistentDB:GetBool(key) else value = PersistentDB:GetInt(key) end
+        if value == nil then value = DEFAULTS[key] end
+        settings[key] = value
     end
-    S.tickCount = clamp(S.tickCount, 1, MAX_TICKS)
-    S.size = clamp(S.size, MIN_SIZE, MAX_SIZE)
+    settings.tickCount = clamp(settings.tickCount, 1, MAX_TICKS)
+    settings.size = clamp(settings.size, MIN_SIZE, MAX_SIZE)
 end
 
-local function save(k, v)
-    S[k] = v
-    if KEYS[k] == "bool" then PersistentDB:SetBool(k, v) else PersistentDB:SetInt(k, v) end
+local function save(key, value)
+    settings[key] = value
+    if KEYS[key] == "bool" then PersistentDB:SetBool(key, value) else PersistentDB:SetInt(key, value) end
 end
 
 -- Tick state -----------------------------------------------------------------
@@ -64,65 +72,71 @@ local colourIndex = 1
 
 -- UI -------------------------------------------------------------------------
 
-local gameArea, box, rect, label, hit
-local fills, rings, nums = {}, {}, {}
-local drag = nil
+local gameArea   -- the game area component everything is attached to
+local box        -- container for the indicator
+local dragLayer  -- invisible click area used to drag the box
+local rect       -- box mode: the coloured square
+local label      -- box mode: the tick number
+local fills, rings, nums = {}, {}, {}   -- circles mode: one of each per tick
+local dragging, grabX, grabY = false, 0, 0
+local dragLayerStretching = false   -- true until one frame after the press
 
 local function destroyUI()
     if box then box:Destroy() end
-    if hit then hit:Destroy() end
-    gameArea, box, rect, label, hit, drag = nil, nil, nil, nil, nil, nil
+    if dragLayer then dragLayer:Destroy() end
+    gameArea, box, dragLayer, rect, label = nil, nil, nil, nil, nil
+    dragging = false
     fills, rings, nums = {}, {}, {}
 end
 
 -- Circles mode lays out one circle per tick in the cycle.
 local function circleGap()
-    return math.max(2, S.size // 4)
+    return math.max(2, settings.size // 4)
 end
 
 local function boxDims()
-    if not S.circles then return S.size, S.size end
-    local n = S.tickCount
-    return n * S.size + (n - 1) * circleGap(), S.size
+    if not settings.circles then return settings.size, settings.size end
+    local count = settings.tickCount
+    return count * settings.size + (count - 1) * circleGap(), settings.size
 end
 
 -- Largest bold font that fits the circle.
 local function circleFont()
-    if S.size >= 36 then return id.Font.MUSEO_SANS_19PT_BOLD end
-    if S.size >= 26 then return id.Font.MUSEO_SANS_15PT_BOLD end
+    if settings.size >= 36 then return id.Font.MUSEO_SANS_19PT_BOLD end
+    if settings.size >= 26 then return id.Font.MUSEO_SANS_15PT_BOLD end
     return id.Font.MUSEO_SANS_13PT_BOLD
 end
 
 local function currentColour()
-    return colourIndex == 1 and S.colour1 or S.colour2
+    return colourIndex == 1 and settings.colour1 or settings.colour2
 end
 
 local function refresh()
     if not box then return end
-    box.hidden = not S.shown
-    hit.hidden = not S.shown
-    hit.clickthrough = S.locked
-    rect.hidden = S.circles
-    if S.circles then
+    box.hidden = not settings.shown
+    dragLayer.hidden = not settings.shown
+    dragLayer.clickthrough = settings.locked
+    rect.hidden = settings.circles
+    if settings.circles then
         -- Lit: solid circle colour. Unlit: unlit fill inside a circle-colour ring.
         -- Circles are white anti-aliased PNGs tinted through rgba.
-        local pitch = S.size + circleGap()
+        local pitch = settings.size + circleGap()
         for i = 1, MAX_TICKS do
-            local used = i <= S.tickCount
+            local used = i <= settings.tickCount
             local lit = i - 1 == tickInCycle
             fills[i].hidden = not used
             rings[i].hidden = not used or lit
             nums[i].hidden = not used
             if used then
                 nums[i]:SetPos((i - 1) * pitch, 0)
-                nums[i]:SetSize(S.size, S.size)
+                nums[i]:SetSize(settings.size, settings.size)
                 nums[i].font = circleFont()
                 nums[i].rgba = lit and 0xFFFFFFFF or CIRCLE_COLOUR
                 fills[i]:SetPos((i - 1) * pitch, 0)
-                fills[i]:SetSize(S.size, S.size)
+                fills[i]:SetSize(settings.size, settings.size)
                 fills[i].rgba = lit and CIRCLE_COLOUR or UNLIT_FILL
                 rings[i]:SetPos((i - 1) * pitch, 0)
-                rings[i]:SetSize(S.size, S.size)
+                rings[i]:SetSize(settings.size, settings.size)
                 rings[i].rgba = CIRCLE_COLOUR
             end
         end
@@ -140,76 +154,55 @@ local function refresh()
     end
 end
 
+-- Keep the drag layer over the box when no drag is in progress.
+local function fitDragLayerToBox()
+    local width, height = boxDims()
+    dragLayer:SetPos(settings.positionX, settings.positionY)
+    dragLayer:SetSize(width, height)
+end
+
 local function placeBox()
     if not box then return end
-    local w, h = boxDims()
-    S.x = clamp(S.x, 0, math.max(0, gameArea.width - w))
-    S.y = clamp(S.y, 0, math.max(0, gameArea.height - h))
-    box:SetPos(S.x, S.y)
-    box:SetSize(w, h)
-    if not drag then
-        hit:SetPos(S.x, S.y)
-        hit:SetSize(w, h)
-    end
+    local width, height = boxDims()
+    settings.positionX = clamp(settings.positionX, 0, math.max(0, gameArea.width - width))
+    settings.positionY = clamp(settings.positionY, 0, math.max(0, gameArea.height - height))
+    box:SetPos(settings.positionX, settings.positionY)
+    box:SetSize(width, height)
+    if not dragging then fitDragLayerToBox() end
 end
 
--- Raw mouse is in window pixels; hook coordinates are interface units.
--- Derive the ratio from the click itself, falling back to the interface scale.
-local function interfaceScale()
-    local o = game and game.options and game.options.InterfaceScale
-    local pct = o and tonumber(o.setting) or 100
-    if pct <= 0 then pct = 100 end
-    return pct / 100
-end
+-- Dragging ---------------------------------------------------------------------
+-- The drag layer is an invisible click area that normally sits over the box.
+-- On press it stretches over the whole game area, so a fast mouse move can't
+-- leave it. Its hook coordinates are then game-area coordinates, and the box
+-- goes to the cursor minus the point where it was grabbed.
+-- Hold events in the same frame as the press still use box-relative
+-- coordinates, so they are ignored until the next frame.
 
-local function measureScale(raw, ix, iy)
-    local c = {}
-    if math.abs(ix) >= 32 then c[#c + 1] = raw.x / ix end
-    if math.abs(iy) >= 32 then c[#c + 1] = raw.y / iy end
-    if #c == 2 and math.abs(c[1] - c[2]) <= (c[1] + c[2]) / 2 * 0.1 then
-        return (c[1] + c[2]) / 2
-    elseif #c == 1 and c[1] >= 0.5 and c[1] <= 4 then
-        return c[1]
-    end
-    return interfaceScale()
-end
-
-local function onClick(_, x, y)
-    if S.locked then return false end
-    local raw = Mouse.GetPosition()
-    if raw == nil then return false end
-    local g = hit.xyGlobal
-    drag = {
-        scale = measureScale(raw, g.x + x, g.y + y),
-        grabX = x,
-        grabY = y,
-        originX = gameArea.xyGlobal.x,
-        originY = gameArea.xyGlobal.y,
-    }
-    -- Expand the hit layer so the drag keeps receiving hold events
-    -- when the cursor outruns the box.
-    hit:SetPos(0, 0)
-    hit:SetSize(0, 0, 1.0, 1.0)
-    hit:MoveToFront()
+local function onClick(_, clickX, clickY)
+    if settings.locked then return false end
+    dragging = true
+    dragLayerStretching = true
+    grabX, grabY = clickX, clickY
+    dragLayer:SetPos(0, 0)
+    dragLayer:SetSize(0, 0, 1.0, 1.0)
     return false
 end
 
-local function onHold()
-    if not drag then return false end
-    local raw = Mouse.GetPosition()
-    if raw == nil then return false end
-    S.x = math.floor(raw.x / drag.scale - drag.originX - drag.grabX + 0.5)
-    S.y = math.floor(raw.y / drag.scale - drag.originY - drag.grabY + 0.5)
+local function onHold(_, cursorX, cursorY)
+    if not dragging or dragLayerStretching then return false end
+    settings.positionX = cursorX - grabX
+    settings.positionY = cursorY - grabY
     placeBox()
     return false
 end
 
 local function onRelease()
-    if not drag then return false end
-    drag = nil
-    placeBox()
-    save("x", S.x)
-    save("y", S.y)
+    if not dragging then return false end
+    dragging = false
+    fitDragLayerToBox()
+    save("positionX", settings.positionX)
+    save("positionY", settings.positionY)
     return false
 end
 
@@ -254,11 +247,11 @@ local function ensureMounted()
     label:AlignTo(ui.AlignMode.CENTRE)
     label.clickthrough = true
 
-    hit = ui.Layer.new(gameArea)
-    hit:Subscribe(ui.Hook.ONCLICK, onClick)
-    hit:Subscribe(ui.Hook.ONHOLD, onHold)
-    hit:Subscribe(ui.Hook.ONRELEASE, onRelease)
-    hit:Subscribe(ui.Hook.ONDRAGCOMPLETE, onRelease)
+    dragLayer = ui.Layer.new(gameArea)
+    dragLayer:Subscribe(ui.Hook.ONCLICK, onClick)
+    dragLayer:Subscribe(ui.Hook.ONHOLD, onHold)
+    dragLayer:Subscribe(ui.Hook.ONRELEASE, onRelease)
+    dragLayer:Subscribe(ui.Hook.ONDRAGCOMPLETE, onRelease)
 
     placeBox()
     refresh()
@@ -270,7 +263,7 @@ end
 local function onServerTick()
     if logicTick - lastServerTick < MIN_LOGIC_TICKS_BETWEEN then return end
     lastServerTick = logicTick
-    tickInCycle = (tickInCycle + 1) % S.tickCount
+    tickInCycle = (tickInCycle + 1) % settings.tickCount
     colourIndex = colourIndex == 1 and 2 or 1
     refresh()
 end
@@ -292,9 +285,9 @@ local function mountSettings(parent)
     })
 
     settingsView:AddCheckboxButton({
-        { text = "Show metronome", value = "shown", selected = S.shown },
-        { text = "Lock position (click-through)", value = "locked", selected = S.locked },
-        { text = "Show as a row of circles", value = "circles", selected = S.circles },
+        { text = "Show metronome", value = "shown", selected = settings.shown },
+        { text = "Lock position (click-through)", value = "locked", selected = settings.locked },
+        { text = "Show as a row of circles", value = "circles", selected = settings.circles },
     }, {
         onChange = function(_, _, key, selected)
             save(key, selected == true)
@@ -305,15 +298,15 @@ local function mountSettings(parent)
 
     local countText = settingsView:AddText({ text = "", width = 344, height = 28, maxLines = 1 })
     local function updateCountText()
-        countText.content = "Ticks in cycle: " .. S.tickCount
+        countText.content = "Ticks in cycle: " .. settings.tickCount
     end
     updateCountText()
     settingsView:AddSlider({
-        min = 1, max = MAX_TICKS, step = 1, value = S.tickCount,
+        min = 1, max = MAX_TICKS, step = 1, value = settings.tickCount,
         onChange = function(_, value)
-            local n = clamp(math.floor(value + 0.5), 1, MAX_TICKS)
-            if n == S.tickCount then return end
-            save("tickCount", n)
+            local newCount = clamp(math.floor(value + 0.5), 1, MAX_TICKS)
+            if newCount == settings.tickCount then return end
+            save("tickCount", newCount)
             tickInCycle = 0
             updateCountText()
             placeBox()
@@ -323,15 +316,15 @@ local function mountSettings(parent)
 
     local sizeText = settingsView:AddText({ text = "", width = 344, height = 28, maxLines = 1 })
     local function updateSizeText()
-        sizeText.content = "Size: " .. S.size
+        sizeText.content = "Size: " .. settings.size
     end
     updateSizeText()
     settingsView:AddSlider({
-        min = MIN_SIZE, max = MAX_SIZE, step = 5, value = S.size,
+        min = MIN_SIZE, max = MAX_SIZE, step = 5, value = settings.size,
         onChange = function(_, value)
-            local n = clamp(math.floor(value + 0.5), MIN_SIZE, MAX_SIZE)
-            if n == S.size then return end
-            save("size", n)
+            local newSize = clamp(math.floor(value + 0.5), MIN_SIZE, MAX_SIZE)
+            if newSize == settings.size then return end
+            save("size", newSize)
             updateSizeText()
             placeBox()
             refresh()
@@ -342,13 +335,13 @@ local function mountSettings(parent)
         { key = "colour1", text = "Box: color 1" },
         { key = "colour2", text = "Box: color 2" },
     }
-    for _, p in ipairs(pickers) do
-        local key = p.key
-        settingsView:AddText({ text = p.text, width = 296, height = 32, maxLines = 1 })
+    for _, picker in ipairs(pickers) do
+        local key = picker.key
+        settingsView:AddText({ text = picker.text, width = 296, height = 32, maxLines = 1 })
         settingsView:AddColourPicker({
             inline = true, width = 40, height = 32,
-            value = S[key], alphaSlider = true,
-            windowTitle = p.text,
+            value = settings[key], alphaSlider = true,
+            windowTitle = picker.text,
             onChange = function(_, colour)
                 save(key, colour)
                 refresh()
@@ -361,14 +354,16 @@ end
 
 loadSettings()
 
-Event.Logic.Subscribe(EVENT_ID, function(e) logicTick = e.logicTick end)
+Event.Logic.Subscribe(EVENT_ID, function(event) logicTick = event.logicTick end)
 Event.ServerLogic.Subscribe(EVENT_ID, onServerTick)
+-- The game area can be rebuilt (e.g. after loading), so re-check each frame.
 Event.Draw.Subscribe(EVENT_ID, function()
-    if ensureMounted() and drag then onHold() end
+    ensureMounted()
+    dragLayerStretching = false
 end)
-Event.SettingsLayerReady.Subscribe(EVENT_ID, function(e) mountSettings(e.component) end)
-Event.GameStateChanged.Subscribe(EVENT_ID, function(e)
-    if e.newState ~= GameState.GAME then
+Event.SettingsLayerReady.Subscribe(EVENT_ID, function(event) mountSettings(event.component) end)
+Event.GameStateChanged.Subscribe(EVENT_ID, function(event)
+    if event.newState ~= GameState.GAME then
         destroySettings()
         destroyUI()
     end
