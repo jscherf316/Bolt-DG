@@ -1,0 +1,11 @@
+{
+  "name": "DG Utils",
+  "version": "0.1.0",
+  "contactEmailAddress": "Skerf73@gmail.com",
+  "hasSettingsIcon": false,
+  "hasRibbonIcon": false,
+  "requiredDependencies": {},
+  "optionalDependencies": {},
+  "requiredPermissions": [],
+  "optionalPermissions": []
+}
