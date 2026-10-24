@@ -257,7 +257,9 @@ local function poll_settings()
   -- gating it here saves ~10k bolt calls per unique mesh in normal play.
   if SET.res and SET.res.set_capture then SET.res.set_capture(RES_PANEL_VISIBLE) end
   ICON_PANEL_VISIBLE     = apply_toggle("icon_panel_visible",    ICON_PANEL_VISIBLE,    SET.icons and SET.icons.open_panel, SET.icons and SET.icons.close_panel)
-  ROOMS_PANEL_VISIBLE    = apply_toggle("rooms_panel_visible",   ROOMS_PANEL_VISIBLE,   open_rooms_browser,         close_rooms_browser)
+  -- Open is left to the per-frame floor gate sync (onswapbuffers): the map
+  -- only shows while a floor is active.
+  ROOMS_PANEL_VISIBLE    = apply_toggle("rooms_panel_visible",   ROOMS_PANEL_VISIBLE,   nil,                        close_rooms_browser)
   KEYS_PANEL_VISIBLE     = apply_toggle("keys_panel_visible",    KEYS_PANEL_VISIBLE,    open_keys_browser,          close_keys_browser)
   -- Line Draw settings live in the settings panel now; apply them here like
   -- every other polled key.
@@ -2031,7 +2033,7 @@ build_img_atlas_msg = function ()
   return _img_atlas_msg
 end
 
-if ROOMS_PANEL_VISIBLE then open_rooms_browser() end
+-- The map opens from the floor gate sync in onswapbuffers, not at load.
 
 -- Keys panel - 8x8 matrix of the 63 key icons (gold_shield missing). Cells
 -- render the icon from the bundled key-icon atlas plus where the key was found and
@@ -4650,6 +4652,7 @@ bolt.onswapbuffers(function (event)
         rooms_by_cell = {}
         room_observations = {}
         wipe_floor_state()
+        S.map_frame_ready = false   -- never blit the previous floor's last frame
         if SET.DEV then
           S.diag_log = (S.diag_log or "") .. string.format(
             "floor gate RISING at %.1fs -- graph cleared, floor state wiped\n", nowf / 1e6)
@@ -4675,6 +4678,14 @@ bolt.onswapbuffers(function (event)
         SET.dev_save("floor_diag.txt", S.diag_log)
       end
     end
+  end
+  -- Map visibility follows the floor gate: shown only while a floor is active
+  -- (or always, when FLOOR_ICON is not cataloged and the gate is inert).
+  local map_wanted = ROOMS_PANEL_VISIBLE and (S.floor_active or not floor_gate_armed())
+  if map_wanted and not rooms_browser then
+    open_rooms_browser()
+  elseif not map_wanted and rooms_browser then
+    close_rooms_browser()
   end
   -- Line Draw: clear this frame's identified keys now that onrendergameview has
   -- consumed them. Next frame's onrender3d passes refill from scratch.

@@ -145,7 +145,7 @@ end
 -- skill -> static guaranteed ranges, from data/skill_doors.txt. Since the
 -- level-aware rules landed (2026-07-28), this table is the FALLBACK path
 -- only: it decides group floors and unknown-level skills, and only for
--- requirements <= 105 (106+ is guaranteed crit before this table is
+-- requirements <= 106 (107+ is guaranteed crit before this table is
 -- consulted, so the file's crit ranges are now dead weight). It also serves
 -- as the roster of skills that can appear on doors at all.
 local SKILL_DOORS = {}
@@ -619,13 +619,13 @@ function EX.tick()
         local R = EX.level.v
         -- Decide parity ("crit" / "bonus" / nil = ambiguous) plus the reason.
         -- Door-generation rules (verified with the table's author 2026-07-28):
-        --   * Bonus doors generate ONLY in 1-105, every skill. So R >= 106 is
+        --   * Bonus doors generate ONLY in 1-106, every skill. So R >= 107 is
         --     crit unconditionally -- solo or group, level known or not. This
         --     supersedes the static crit ranges (and the old strength row's
         --     claimed 106-110 bonus overlap, which cannot actually generate).
         --   * Crit doors generate ONLY in [L-9, L] of the deciding level L
         --     (solo: the player's own level, live from hiscores). Anything
-        --     else in 1-105 is guaranteed bonus.
+        --     else in 1-106 is guaranteed bonus.
         -- On a GROUP floor the deciding L is the party's highest, which we
         -- don't know yet -- fall back to the static adjudicated ranges until
         -- party sync shares levels. Same fallback when the skill's level is
@@ -634,10 +634,10 @@ function EX.tick()
         local L = (not S.group_seen) and SET.skills and SET.skills[target.skill] or nil
         if R >= 106 then
           parity = "crit"
-          why = ("skill door examined: requires level %d %s -- above 105, where " ..
+          why = ("skill door examined: requires level %d %s -- above 106, where " ..
                  "only crit doors generate"):format(R, target.skill)
         elseif L then
-          local lo, hi = math.max(1, L - 9), math.min(L, 105)
+          local lo, hi = math.max(1, L - 9), math.min(L, 106)
           if R >= lo and R <= hi then
             why = ("%d is inside the possible-crit band %d-%d for level %d %s"):format(
               R, lo, hi, L, target.skill)
@@ -650,13 +650,13 @@ function EX.tick()
         else
           local in_bonus = sd and R >= sd.bonus_lo and R <= sd.bonus_hi
           -- CAP-OVERFLOW BONUS: a door on a level-99-max skill whose requirement
-          -- lands in 100-105 (above the skill's real cap) is guaranteed BONUS.
+          -- lands in 100-106 (above the skill's real cap) is guaranteed BONUS.
           -- Disjoint from the normal 1-N band, so it carries its own reason.
-          local over_cap = sd and sd.max == 99 and R >= 100 and R <= 105
+          local over_cap = sd and sd.max == 99 and R >= 100 and R <= 106
           if in_bonus or over_cap then
             parity = "bonus"
             why = over_cap
-              and ("skill door examined: requires level %d %s, in the 100-105 band " ..
+              and ("skill door examined: requires level %d %s, in the 100-106 band " ..
                    "above the level-99 cap -- guaranteed bonus"):format(R, target.skill)
               or  ("skill door examined: requires level %d %s, inside " ..
                    "the static guaranteed-bonus range %d-%d"):format(R, target.skill, sd.bonus_lo, sd.bonus_hi)

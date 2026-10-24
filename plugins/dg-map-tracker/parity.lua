@@ -312,7 +312,7 @@ local function solve_parity(rooms, ev)
   -- and names the door, skill and level). Both directions are guarantees per
   -- skill_doors.txt -- adjudicated 2026-07-15 by the tier table's author: a
   -- crit-range level cannot appear on a bonus door. A level inside BOTH
-  -- ranges (strength's 106-110 overlap) or NEITHER (the 101-105 gap) is
+  -- ranges (strength's 106-110 overlap) or NEITHER (the 101-106 gap) is
   -- ambiguous and never reaches these maps. Crit propagates UP to base via
   -- the normal propagator; bonus floods DOWN.
   for ck, why in pairs(ev.skill_bonus or {}) do

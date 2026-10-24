@@ -1,8 +1,8 @@
 # Skill door tier data -- the STATIC FALLBACK since 2026-07-28. Solo floors
 # with a live hiscores level use the level-aware rule in examine.lua instead
-# (bonus doors generate only in 1-105; crit doors only in [level-9, level]);
+# (bonus doors generate only in 1-106; crit doors only in [level-9, level]);
 # this table decides group floors and unknown-level skills. Requirements of
-# 106+ are guaranteed crit before this table is consulted, so the crit
+# 107+ are guaranteed crit before this table is consulted, so the crit
 # ranges below are effectively dead; the file doubles as the roster of
 # skills that can appear on doors.
 #
@@ -15,21 +15,21 @@
 #
 # A requirement inside crit_lo..crit_hi implies crit; inside bonus_lo..bonus_hi
 # implies bonus. Overlap or gaps mean ambiguous and defer to other signals.
-runecrafting|110|106|110|1|100
-strength|120|106|120|1|110
-mining|110|106|110|1|100
-firemaking|110|106|110|1|100
-magic|120|106|120|1|105
+runecrafting|110|107|110|1|100
+strength|120|107|120|1|110
+mining|110|107|110|1|100
+firemaking|110|107|110|1|100
+magic|120|107|120|1|106
 prayer|99|0|0|1|89
-woodcutting|110|106|110|1|100
-smithing|110|106|110|1|100
-crafting|110|106|110|1|100
+woodcutting|110|107|110|1|100
+smithing|110|107|110|1|100
+crafting|110|107|110|1|100
 agility|99|0|0|1|89
-thieving|120|106|120|1|105
+thieving|120|107|120|1|106
 summoning|99|0|0|1|89
-herblore|120|106|120|1|105
-farming|120|106|120|1|105
-construction|120|106|120|1|100
+herblore|120|107|120|1|106
+farming|120|107|120|1|106
+construction|120|107|120|1|100
 divination|99|0|0|1|89
-invention|120|106|120|1|105
-archaeology|120|106|120|1|105
+invention|120|107|120|1|106
+archaeology|120|107|120|1|106
