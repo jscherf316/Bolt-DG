@@ -1010,8 +1010,12 @@ open_resource_browser = function ()
     local vlo, vhi = msg:match("^vrange:(%d+),(%d+)$")
     if vlo then queue_vmin, queue_vmax = tonumber(vlo), tonumber(vhi); return end
     -- SHOW LARGE toggle: lift the >5000-vert / bbox / upper-bound rejects.
+    -- Must also flush the fingerprint memo: meshes scanned while the toggle
+    -- was off are memoised per (tile,n) as "not a resource", and that verdict
+    -- would otherwise outlive the toggle -- large models near the player
+    -- stayed invisible to the queue until a floor change.
     local sl = msg:match("^show_large:(%d)$")
-    if sl then show_large = (sl == "1"); return end
+    if sl then show_large = (sl == "1"); S.res_fp_memo = {}; return end
     -- Preview request: modal opened for queue entry #i (1-based).
     local pi = msg:match("^preview:(%d+)$")
     if pi then
